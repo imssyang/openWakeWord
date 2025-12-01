@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "test_usage",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "tests.test_usage",
+            "console": "integratedTerminal",
+            "args": [
+                "-i", "${workspaceFolder}/i.mp4",
+                "-o", "${workspaceFolder}/o.mp4"
+            ],
+            "env": {
+                "PYTHONPATH": "/usr/local/lib/python3.10/dist-packages"
+            }
+        }
+    ]
+}
