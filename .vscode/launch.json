@@ -17,6 +17,17 @@
             "env": {
                 "PYTHONPATH": "/usr/local/lib/python3.10/dist-packages"
             }
+        },
+        {
+            "name": "benchmark",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "benchmark.benchmark",
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {
+                "PYTHONPATH": "/usr/local/lib/python3.10/dist-packages:${workspaceFolder}"
+            }
         }
     ]
 }

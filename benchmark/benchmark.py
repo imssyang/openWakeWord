@@ -23,10 +23,11 @@ from collections import defaultdict
 def run_benchmark():
     # Load models
     model_paths = [str(i) for i in Path("openwakeword/resources/models").glob("*.onnx") \
-                   if "embedding" not in str(i) and "melspectrogram" not in str(i)]
+                   if "embedding" not in str(i) and "melspectrogram" not in str(i) and "silero_vad" not in str(i)]
+    print(f"{model_paths=}")
     M = openwakeword.Model(
-        wakeword_model_paths=model_paths,
-        input_sizes=[16]
+        wakeword_models=model_paths,
+        inference_framework="onnx",
     )
 
     # Create random data to use for benchmarking
@@ -38,13 +39,13 @@ def run_benchmark():
     model_times = defaultdict(list)
     for i in range(0, clip.shape[0]-step_size, step_size):
         pred, timing_dict = M.predict(clip[i:i+step_size], timing=True)
-        preprocessing_times.append(timing_dict["preprocessor"])
+        preprocessing_times.append(timing_dict["models"]["preprocessor"])
         for mdl_name in M.models.keys():
             model_times[mdl_name].append(timing_dict["models"][mdl_name])
 
     print(f"Average of {np.mean(preprocessing_times)} for audio preprocessing with a frame size of {step_size/16000} seconds")
     for mdl_name in M.models.keys():
-        print(f"Average of {np.mean(model_times[mdl_name])} for model \"{mdl_name}\"", "\n\n")
+        print(f"Average of {np.mean(model_times[mdl_name])} for model \"{mdl_name}\"")
 
 if __name__ == "__main__":
    run_benchmark()

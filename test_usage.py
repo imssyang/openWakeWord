@@ -1,10 +1,12 @@
 import openwakeword
 from openwakeword.model import Model
+from openwakeword.utils import bulk_predict
 import soundfile as sf
+
 
 model = Model(
     wakeword_models=[
-        "/usr/local/lib/python3.10/dist-packages/openwakeword/resources/models/alexa_v0.1.onnx"
+        "openwakeword/resources/models/alexa_v0.1.tflite"
     ],  # can also leave this argument empty to load all of the included pre-trained models
 )
 
@@ -21,7 +23,18 @@ def get_audio_frame():
 # increasing overall efficiency at the cost of detection latency
 frame = get_audio_frame()
 
-
 # Get predictions for the frame
 prediction = model.predict(frame)
-print(prediction)
+print(f"{prediction=}")
+
+# Get predictions for individual WAV files (16-bit 16khz PCM)
+predictions = model.predict_clip("tests/data/alexa_test.wav")
+print(f"{predictions=}")
+
+# Get predictions for a large number of files using multiprocessing
+predictions2 = bulk_predict(
+    file_paths = ["tests/data/alexa_test.wav", "tests/data/hey_jane.wav"],
+    wakeword_models = ["hey jarvis"],
+    ncpu=2
+)
+print(f"{predictions2=}")
