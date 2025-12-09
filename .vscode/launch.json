@@ -8,7 +8,7 @@
             "name": "test_usage",
             "type": "debugpy",
             "request": "launch",
-            "module": "tests.test_usage",
+            "module": "test_usage",
             "console": "integratedTerminal",
             "args": [
                 "-i", "${workspaceFolder}/i.mp4",
