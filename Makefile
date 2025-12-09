@@ -11,7 +11,7 @@ build:
 		-f Dockerfile .
 
 run:
-	docker run -it --rm \
+	docker run -itd \
 		--privileged \
 		--env DISPLAY=${DISPLAY} \
 		--env PULSE_SERVER=${PULSE_SERVER} \
