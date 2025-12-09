@@ -3,6 +3,7 @@ requests==2.32.5
 scikit-learn==1.7.2
 scipy==1.15.3
 soundfile==0.13.1
+sounddevice==0.5.3
 speexdsp_ns==0.1.2
 onnxruntime==1.23.2
 tqdm==4.67.1
