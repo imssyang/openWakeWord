@@ -4,16 +4,18 @@ LABEL org.opencontainers.image.description="imssyang/ai:openwakeword"
 
 ARG OPENWAKEWORD_HOME="/opt/ai/openWakeWord"
 
-ENV PIP_ROOT_USER_ACTION=ignore
-
 RUN apt-get update && \
     apt-get install -y \
-    alsa-utils \
-    libpulse0 \
+    libasound2-dev \
     libspeexdsp-dev \
-    pulseaudio-utils \
+    libpulse-dev \
     python3-pyaudio && \
     rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/PortAudio/portaudio.git /opt/portaudio && \
+    cd /opt/portaudio && \
+    ./configure --with-pulseaudio && \
+    make && make install && ldconfig
 
 ADD requirements.txt ${OPENWAKEWORD_HOME}/requirements.txt
 
