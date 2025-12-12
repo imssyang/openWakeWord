@@ -90,7 +90,7 @@ if __name__ == '__main__':
         "--model_path",
         help="The path of a specific model to load",
         type=str,
-        default="",
+        default="../openwakeword/resources/models/alexa_v0.1.tflite",
         required=False
     )
     parser.add_argument(

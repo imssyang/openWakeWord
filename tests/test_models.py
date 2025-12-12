@@ -296,7 +296,6 @@ class TestModels:
     def test_models_with_timing(self):
         # Load model with defaults
         owwModel = openwakeword.Model(vad_threshold=0.5)
-
         owwModel.predict(np.zeros(1280).astype(np.int16), timing=True)
 
     def test_prediction_with_patience(self):

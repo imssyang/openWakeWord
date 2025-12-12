@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Imports
-import pyaudio
+import sounddevice as sd
 import numpy as np
 import os
 import argparse
@@ -21,13 +21,16 @@ parser=argparse.ArgumentParser()
 from openwakeword.model import Model
 
 # Get microphone stream
-FORMAT = pyaudio.paInt16
 CHANNELS = 1
 RATE = 16000
 CHUNK = 1280
-audio = pyaudio.PyAudio()
-mic_stream = audio.open(format=FORMAT, channels=CHANNELS,
-                        rate=RATE, input=True, frames_per_buffer=CHUNK)
+stream = sd.RawInputStream(
+    samplerate=RATE,
+    blocksize=CHUNK,
+    channels=CHANNELS,
+    dtype='int16'
+)
+stream.start()
 
 # Get desired number of CPU cores per calculation
 parser.add_argument(
@@ -47,7 +50,8 @@ if __name__ == "__main__":
     print("\n############################\n\n")
     for i in range(1000000):
         # Get audio
-        audio = np.frombuffer(mic_stream.read(CHUNK), dtype=np.int16)
+        data, overflowed = stream.read(CHUNK)
+        audio = np.frombuffer(data, dtype=np.int16)
 
         # Feed to openWakeWord model
         prediction, timing_dict = owwModel.predict(audio, timing=True)
