@@ -142,3 +142,7 @@ examples/
 
 # archive files
 archive/
+
+# Others
+tests/data
+trains/data
