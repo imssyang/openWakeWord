@@ -7,6 +7,8 @@ ARG PYTORCH_REPOSITORY="https://download.pytorch.org/whl/cu126"
 
 RUN apt-get update && \
     apt-get install -y \
+    git \
+    git-lfs \
     libasound2-dev \
     libspeexdsp-dev \
     libpulse-dev \

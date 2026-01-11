@@ -2,6 +2,7 @@
 # https://stackoverflow.com/questions/73092750/how-to-show-gui-apps-from-docker-desktop-container-on-windows-11
 #
 IMAGE := ghcr.io/imssyang/ai:openwakeword
+HOSTDIR := /opt/ai/projects/openWakeWord
 WORKDIR := /opt/ai/openWakeWord
 
 build:
@@ -11,7 +12,7 @@ build:
 		-f Dockerfile .
 
 run:
-	docker run -it --rm \
+	docker run -itd --gpus all \
 		--privileged \
 		--env DISPLAY=${DISPLAY} \
 		--env PULSE_SERVER=${PULSE_SERVER} \
@@ -20,7 +21,7 @@ run:
 		--env XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir \
 		--volume /mnt/wslg:/mnt/wslg \
 		--volume /mnt/wslg/.X11-unix:/tmp/.X11-unix \
-		--volume $(WORKDIR):$(WORKDIR) \
+		--volume $(HOSTDIR):$(WORKDIR) \
 		--workdir $(WORKDIR) \
 		--entrypoint /bin/bash \
 		--name ai.openwakeword \
