@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openwakeword"
+version = "0.6.0"
+authors = [
+  { name="David Scripka", email="david.scripka@gmail.com" },
+]
+description = "An open-source audio wake word (or phrase) detection framework with a focus on performance and simplicity"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+]
+dynamic = ["dependencies", "optional-dependencies"]
+
+[project.urls]
+"Homepage" = "https://pypi.org/project/openwakeword"
+"Bug Tracker" = "https://pypi.org/project/openwakeword/issues"
+"Source" = "https://github.com/yourname/openwakeword"
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+optional-dependencies = { dev = { file = "requirements-dev.txt" } }
+
+[tool.pytest.ini_options]
+addopts = "-vv --durations=0 -s"
+filterwarnings = ["ignore::pytest.PytestWarning"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s: %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+pythonpath = ["."]
+testpaths = ["tests"]
