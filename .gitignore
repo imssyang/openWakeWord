@@ -136,10 +136,6 @@ notebooks/
 !notebooks/training_models.ipynb
 !training_tutorial_data
 
-# Most example files
-examples/
-!examples/audio/activation.wav
-
 # archive files
 archive/
 
