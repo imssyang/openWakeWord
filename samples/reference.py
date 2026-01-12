@@ -1,7 +1,7 @@
 import numpy as np
 import openwakeword
 import os
-from typing import List, Tuple
+from typing import Tuple
 from samples.utils import format_np_floats
 from samples.utils import FilePlayer, RealPlayer
 
@@ -43,17 +43,33 @@ class FrameAccumulator:
 
 
 class WakeWordModel:
-    def __init__(self, model_paths: List[str]):
-        #np.set_printoptions(precision=6, suppress=True)
+    def __init__(
+        self,
+        model_paths: Tuple[str],
+        *,
+        inference_framework: str,
+        enable_noise_suppression: bool = False,
+        vad_threshold: float = 0,
+        pred_threshold: float = 0,
+        enable_debug: bool = False
+    ):
         self.model_paths = model_paths
-        self.model = openwakeword.model.Model(wakeword_models=model_paths)
+        self.pred_threshold = pred_threshold
+        self.enable_debug = enable_debug
+        self.model = openwakeword.model.Model(
+            wakeword_models=model_paths,
+            enable_speex_noise_suppression=enable_noise_suppression,
+            vad_threshold=vad_threshold,
+            inference_framework=inference_framework,
+        )
+        print(f"models.keys: {self.model.models.keys()}")
 
     def predict_microphone(self):
         print(f"Starting real-time wake word detection by {self.model_paths} ...")
         i = 0
         acc = FrameAccumulator(frame_size=1280)
         # Get audio data containing 16-bit 16khz PCM audio data from microphone.
-        with RealPlayer(samplerate=16000, chunksize=512, channels=1, dtype='float32') as player:
+        with RealPlayer(samplerate=16000, chunksize=512, channels=1, dtype='int16') as player:
             while True:
                 data, overflowed = player.read()
                 audio = np.frombuffer(data, dtype=np.int16)
@@ -67,7 +83,7 @@ class WakeWordModel:
         # Get audio data containing 16-bit 16khz PCM audio data from a file, microphone, network stream, etc.
         # For the best efficiency and latency, audio frames should be multiples of 80 ms, with longer frames
         # increasing overall efficiency at the cost of detection latency
-        player = FilePlayer(audio_path, dtype="float32")
+        player = FilePlayer(audio_path, dtype="int16")
         if player.samplerate != 16000:
             raise ValueError("The model requires 16kHz, please resample first")
 
@@ -80,6 +96,10 @@ class WakeWordModel:
         for i, frame in enumerate(frames):
             prediction = self.model.predict(frame)
             print(f"predict[{i}:{80*i}ms]={format_np_floats(prediction)}")
+            if self.enable_debug:
+                for mdl in self.model.prediction_buffer.keys():
+                    scores = list(self.model.prediction_buffer[mdl])
+                    print(f"prediction_buffer[{i}:{80*i}ms]: {mdl}={format_np_floats(scores)}")
 
     def predict_clip(self, audio_path: str):
         # Get predictions for individual WAV files (16-bit 16khz PCM)
@@ -103,17 +123,18 @@ if __name__ == "__main__":
     alexa_file = f"{data_dir}/alexa/alexa_test.wav"
     hey_jane_file = f"{data_dir}/hey_jane/hey_jane_test.wav"
     hey_mycroft_file = f"{data_dir}/hey_mycroft/hey_mycroft_test.wav"
-    
+    model_framework = "tflite" # tflite,onnx
+
     wwm = WakeWordModel([
-        f"{model_dir}/alexa_v0.1.tflite",
-        f"{model_dir}/hey_jarvis_v0.1.tflite",
-        f"{model_dir}/hey_mycroft_v0.1.tflite",
-    ])
-    wwm.predict_microphone()
+        f"{model_dir}/alexa_v0.1.{model_framework}",
+        #f"{model_dir}/hey_jarvis_v0.1.{model_framework}",
+        #f"{model_dir}/hey_mycroft_v0.1.{model_framework}",
+    ], inference_framework=model_framework)
+    #wwm.predict_microphone()
     #wwm.predict_file(alexa_file)
     #wwm.predict_file(hey_jane_file)
     #wwm.predict_file(hey_mycroft_file)
     #wwm.predict_clip(alexa_file)
     #wwm.predict_clip(hey_jane_file)
     #wwm.predict_clip(hey_mycroft_file)
-    #wwm.predict_bulk([alexa_file, hey_jane_file, hey_mycroft_file])
+    wwm.predict_bulk([alexa_file, hey_jane_file, hey_mycroft_file])
