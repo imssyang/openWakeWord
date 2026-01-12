@@ -128,17 +128,6 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Most notebooks
-notebooks/
-!notebooks/automatic_model_training.ipynb
-!notebooks/converting_google_speech_embedding_model.ipynb
-!notebooks/performance_metrics.ipynb
-!notebooks/training_models.ipynb
-!training_tutorial_data
-
-# archive files
-archive/
-
 # Others
-tests/data
-trains/data
+data/*
+!data/README.md
