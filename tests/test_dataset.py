@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 def test_audio_dataset():
     for i, item in enumerate(AudioDataset(
-        "data/alexa", 16000, True,
+        ["data/alexa"], 16000, True,
     )):
         if i >= 2:
             break
@@ -25,10 +25,9 @@ def test_audio_dataset():
 def test_cv17_dataset():
     dataset = CV17Dataset(
         hf_path="data/huggingface",
+        batch_size=4,
         n_train=6,
         n_test=2,
-        batch_size=4,
-        num_workers=0,
     )
     for batch in dataset.trainloader:
         print(batch)
@@ -65,7 +64,7 @@ def test_negative_features():
     print(f"{len(negative_clips)} negative clips after filtering, representing ~{sum(durations)} sec")
     audio_dataset = datasets.Dataset.from_dict({"audio": negative_clips})
     audio_dataset = audio_dataset.cast_column("audio", datasets.Audio(sampling_rate=16000))
-    print(f"{audio_dataset.num_rows=}")
+    print(f"{audio_dataset.num_rows=} {audio_dataset=}")
 
     # Get audio embeddings (features) for negative clips and save to .npy file
     # Process files by batch and save to Numpy memory mapped file so that
