@@ -181,69 +181,103 @@ class OWWDataset:
         batch_size: int = 512,
     ):
         # Load the data prepared in previous steps (it's small enough to load entirely in memory)
+        # negative_features: [N_neg, T, F] = (23, 28, 96) 
+        # positive_features: [N_pos, T, F] = (3203, 28, 96)
         negative_features = np.load(negative_feat_path)
         positive_features = np.load(positive_feat_path)
+        print(f"negative_features len={len(negative_features)} shape={negative_features.shape}")
+        print(f"positive_features len={len(positive_features)} shape={positive_features.shape}")
+
+        # X_shape: [N_neg + N_pos, T, F] = (3226, 28, 96)
+        # y_shape: [N_neg + N_pos, 1] = (3226, 1)
         X = np.vstack((negative_features, positive_features))
-        y = np.array([0]*len(negative_features) + [1]*len(positive_features)).astype(np.float32)[...,None]
-        training_data = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(torch.from_numpy(X), torch.from_numpy(y)),
+        y = np.array(
+            [0]*len(negative_features) +   # negative -> 0
+            [1]*len(positive_features)     # positive -> 1
+        ).astype(np.float32)[..., None]
+        print(f"X len={len(X)} shape={X.shape}")
+        print(f"y len={len(y)} shape={y.shape}")
+
+        # x_batch: [B, T, F] = (512, 28, 96)
+        # y_batch: [B, 1] = (512, 1)
+        self.trainloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(
+                torch.from_numpy(X.astype(np.float32)),
+                torch.from_numpy(y.astype(np.float32)),
+            ),
             batch_size=batch_size,
             shuffle=True,
         )
+        for x_batch, y_batch in self.trainloader:
+            print(f"x_batch len={len(x_batch)} shape={x_batch.shape}")
+            print(f"y_batch len={len(y_batch)} shape={y_batch.shape}")
+            self.input_timesteps = x_batch.shape[1]
+            self.input_feature = x_batch.shape[2]
+            print(f"y len={len(y)} shape={y.shape} {self.input_timesteps=} {self.input_feature=}")
+            break
 
 
-class OWWNetwork:
-    def __init__(self):
-        # Define fully-connected network in PyTorch
-        layer_dim = 32
-        fcn = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(X.shape[1]*X.shape[2], layer_dim), # since the input is flattened, it's timesteps*feature columns
-            nn.LayerNorm(layer_dim),
-            nn.ReLU(),
-            nn.Linear(layer_dim, layer_dim),
-            nn.LayerNorm(layer_dim),
-            nn.ReLU(),
-            nn.Linear(layer_dim, 1),
-            nn.Sigmoid(),
-        )
-        loss_function = torch.nn.functional.binary_cross_entropy
-        optimizer = torch.optim.Adam(fcn.parameters(), lr=0.001)
+class OWWNetwork(torch.nn.Module):
+    def __init__(self, input_timesteps: int, input_feature: int, layer_dim: int = 32):
+        super().__init__()
+        self.flatten = torch.nn.Flatten() # the input is flattened
+        self.fc1 = torch.nn.Linear(input_timesteps * input_feature, layer_dim)
+        self.ln1 = torch.nn.LayerNorm(layer_dim)
+        self.relu1 = torch.nn.ReLU()
+        self.fc2 = torch.nn.Linear(layer_dim, layer_dim)
+        self.ln2 = torch.nn.LayerNorm(layer_dim)
+        self.relu2 = torch.nn.ReLU()
+        self.fc3 = torch.nn.Linear(layer_dim, 1)
+        self.sigmoid = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        # x shape: [B, T, F]
+        x = self.flatten(x)
+        x = self.fc1(x)
+        x = self.ln1(x)
+        x = self.relu1(x)
+        x = self.fc2(x)
+        x = self.ln2(x)
+        x = self.relu2(x)
+        x = self.fc3(x)
+        x = self.sigmoid(x)
+        return x
 
 
 class OWWModel:
-    def __init__(self):
-        pass
-    
-    def train(self):
+    def __init__(self, input_timesteps, input_feature):
+        self.network = OWWNetwork(input_timesteps, input_feature)
+        self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
+        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
+
+    def train(self, data_loader: torch.utils.data.DataLoader, num_epochs: int = 10):
         # Define training loop, metrics, and logging
-        n_epochs = 10
         history = collections.defaultdict(list)
-        for i in tqdm(range(n_epochs), total=n_epochs):
-            for batch in training_data:
+        for i in tqdm(range(num_epochs), total=num_epochs):
+            for batch in data_loader:
                 # Get data for batch
                 x, y = batch[0], batch[1]
-                
+
                 # Get weights for classes, and assign 10x higher weight to negative class
                 # to help the model learn to not have too many false-positives
                 # As you have more data (both positive and negative), this is less important
                 weights = torch.ones(y.shape[0])
                 weights[y.flatten() == 1] = 0.1
-                
+
                 # Zero gradients
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 
                 # Run forward pass
-                predictions = fcn(x)
+                predictions = self.network(x)
                 
                 # Update model parameters
-                loss = loss_function(predictions, y, weights[..., None])
+                loss_per_sample = self.criterion(predictions, y)
+                loss = (loss_per_sample * weights).mean()
                 loss.backward()
-                optimizer.step()
-                
+                self.optimizer.step()
+
                 # Log metrics
                 history['loss'].append(float(loss.detach().numpy()))
-                
                 tp = sum(predictions.flatten()[y.flatten() == 1] >= 0.5)
                 fn = sum(predictions.flatten()[y.flatten() == 1] < 0.5)
                 history['recall'].append(float(tp/(tp+fn).detach().numpy()))
@@ -255,12 +289,19 @@ class OWWModel:
         plt.legend()
         plt.ylim(0,1)
 
+
 if __name__ == "__main__":
     work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     hf_dir = f"{work_dir}/data/huggingface"
-    cv17 = CV17Dataset(hf_path=hf_dir, n_train=5, n_test=2)
-    cv17.download(target_sr=16000, enable_mono=True)
+    #cv17 = CV17Dataset(hf_path=hf_dir, n_train=5, n_test=2)
 
+    oww_dataset = OWWDataset(
+        negative_feat_path="data/huggingface/common_voice_17/en/train_features.npy",
+        positive_feat_path="data/turn_on_the_office_lights/positive_features.npy",
+        batch_size=512,
+    )
 
-#final_ds = Dataset.from_list(list(small_ds))
-#final_ds.save_to_disk("./cv_100_samples")
+    oww_model = OWWModel(
+        oww_dataset.input_timesteps, oww_dataset.input_feature
+    )
+    oww_model.train(oww_dataset.trainloader, num_epochs=10)
