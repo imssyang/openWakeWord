@@ -130,5 +130,6 @@ dmypy.json
 
 # Others
 data/huggingface/_cache/
+data/huggingface/common_voice_17/
 data/turn_on_the_office_lights/
 !data/README.md
