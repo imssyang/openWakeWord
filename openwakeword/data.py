@@ -463,7 +463,7 @@ def mix_clips_batch(
         mixed_clips_batch = (mixed_clips_batch.numpy()*32767).astype(np.int16)
 
         # Remove any clips that are silent (happens rarely when mixing/reverberating)
-        error_index = torch.from_numpy(np.where(mixed_clips_batch.max(dim=1) != 0)[0])
+        error_index = torch.from_numpy(np.where(mixed_clips_batch.max(axis=1) != 0)[0])
         mixed_clips_batch = mixed_clips_batch[error_index]
         labels_batch = labels_batch[error_index]
         sequence_labels_batch = sequence_labels_batch[error_index]
