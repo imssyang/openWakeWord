@@ -129,5 +129,6 @@ dmypy.json
 .pyre/
 
 # Others
-data/*
+data/huggingface/_cache/
+data/turn_on_the_office_lights/
 !data/README.md
