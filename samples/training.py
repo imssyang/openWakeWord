@@ -6,6 +6,7 @@ import io
 import os
 import kagglehub
 import librosa
+import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import openwakeword
@@ -18,233 +19,42 @@ import torch
 import torchaudio
 from tqdm import tqdm
 from typing import Optional, List
+from .dataset import (
+    AudioDataset,
+    CV17Dataset,
+)
 
 
-class AudioDataset(torch.utils.data.Dataset):
+class OWWNegativeFeature:
     def __init__(
         self,
-        target_dirs: List[str],
-        *,
-        sample_rate: int,
-        enable_mono: bool,
-        min_length_secs: float = 1.0,
-        max_length_secs: float = 30.0,
-        ext_name: str = "wav",
-    ):
-        self.enable_mono = enable_mono
-        self.sample_rate = sample_rate
-        self.min_length_secs = min_length_secs
-        self.max_length_secs = max_length_secs
-        self.file_paths, self.durations = self._filter_paths(target_dirs, ext_name)
-
-    def __len__(self):
-        return len(self.file_paths)
-
-    def __getitem__(self, idx):
-        file_path = self.file_paths[idx]
-        tensor_data, sr = torchaudio.load(file_path)  # [channels, samples]
-        np_data = self.transform(tensor_data.numpy(), sr, self.sample_rate, self.enable_mono)
-        return dict(
-            audio=dict(
-                path=file_path,
-                duration=self.durations[idx],
-                sampling_rate=sr,
-                array=torch.from_numpy(np_data),
-            )
-        )
-
-    def _filter_paths(self, target_dirs: List[str], ext_name: str):
-        return openwakeword.data.filter_audio_paths(
-            target_dirs,
-            min_length_secs=self.min_length_secs,
-            max_length_secs=self.max_length_secs,
-            duration_method="header",
-            glob_filter=f"*.{ext_name}",
-        )
-
-    @staticmethod
-    def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:
-        if enable_mono:
-            audio_data = librosa.to_mono(audio_data)
-        if orig_sr != target_sr:
-            audio_data = librosa.resample(
-                audio_data,
-                orig_sr=orig_sr,
-                target_sr=target_sr,
-            )
-        return audio_data
-
-
-class CV17Dataset:
-    def __init__(
-        self,
-        hf_path: str,
-        batch_size: int,
-        n_train: int,
-        n_test: int,
-        num_workers: int = 0,
-        language: str = "en",
-        sample_rate: int = 16000,
-        enable_mono: bool = True,
-    ):
-        self.cache_dir = f"{hf_path}/_cache"
-        self.dataset_dir = f"{hf_path}/common_voice_17/{language}"
-        self.train_dir = f"{self.dataset_dir}/train"
-        self.test_dir = f"{self.dataset_dir}/test"
-        self.dataset_name = "fixie-ai/common_voice_17_0"
-        self.language = language
-        self.n_train = n_train
-        self.n_test = n_test
-        self.sample_rate = sample_rate
-        self.enable_mono = enable_mono
-        self.trainloader = torch.utils.data.DataLoader(
-            self.load_dataset("train"),
-            batch_size=batch_size,
-            collate_fn=self.audio_collate_fn,
-            shuffle=True,
-            drop_last=False,
-            num_workers=num_workers,
-        )
-        self.testloader = torch.utils.data.DataLoader(
-            self.load_dataset("test"),
-            batch_size=batch_size,
-            collate_fn=self.audio_collate_fn,
-            shuffle=False,
-            drop_last=False,
-            num_workers=num_workers,
-        )
-
-    def load_dataset(self, split_name: str):
-        dataset = AudioDataset(
-            target_dirs=[self.try_download(split_name)],
-            sample_rate=self.sample_rate,
-            enable_mono=True,
-        )
-        print(f"Load audio files: {len(dataset)} for {split_name}")
-        return dataset
-
-    def try_download(self, split_name: str):
-        if split_name not in ["train", "test"]:
-            raise ValueError(f"Invalid split_name: {split_name}")
-
-        if split_name == "train":
-            n_element = self.n_train
-            output_dir = self.train_dir
-        else:
-            n_element = self.n_test
-            output_dir = self.test_dir
-
-        os.makedirs(output_dir, exist_ok=True)
-        audio_dataset = AudioDataset(
-            target_dirs=[output_dir],
-            sample_rate=self.sample_rate,
-            enable_mono=True,
-        )
-        audio_num = len(audio_dataset)
-        if audio_num >= n_element:
-            print(f"Find audio files: {audio_num} for {split_name}")
-            return output_dir
-
-        csv_path = f"{self.dataset_dir}/{split_name}_meta.csv"
-        if os.path.exists(csv_path):
-            os.removedirs(csv_path)
-
-        dataset = datasets.load_dataset(
-            self.dataset_name,
-            self.language,
-            split=split_name,
-            streaming=True,
-            cache_dir=self.cache_dir,
-        ).take(n_element)
-        for i, element in enumerate(dataset):
-            audio_path = element['audio']['path']
-            if not audio_path:
-                audio_path = os.path.basename(element['path'])
-            audio_data = element['audio']['array']
-            audio_sr = element['audio']['sampling_rate']
-            sentence = element['sentence']
-            print(f"Index[{i}] {audio_path=} {audio_data.shape=} {audio_sr=} {sentence=}")
-
-            save_name = f"{os.path.splitext(audio_path)[0]}.wav"
-            save_path = f"{output_dir}/{save_name}"
-            if not os.path.exists(save_path):
-                audio_target = AudioDataset.transform(
-                    audio_data, audio_sr, self.sample_rate, self.enable_mono)
-                sf.write(save_path, audio_target, self.sample_rate)
-                self.append_csv(csv_path, i, save_name, sentence)
-        print(f"Download audio files: {n_element} for {split_name}")
-        return output_dir
-
-    @staticmethod
-    def append_csv(csv_path: str, index: int, filename: str, text: str):
-        fieldnames = [
-            "index",
-            "filename",
-            "text",
-        ]
-        with open(pathlib.Path(csv_path), "a", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writerow(dict(
-                index=index,
-                filename=filename,
-                text=text,
-            ))
-
-    @staticmethod
-    def audio_collate_fn(batch):
-        paths = [b["audio"]["path"] for b in batch]
-        durations = [b["audio"]["duration"] for b in batch]
-        sample_rates = [b["audio"]["sampling_rate"] for b in batch]
-        waveforms = [b["audio"]["array"] for b in batch]
-
-        # [T] -> [1, T]
-        waveforms = [
-            w if w.ndim == 2 else w.unsqueeze(0)
-            for w in waveforms
-        ]
-        lengths = torch.tensor([w.shape[-1] for w in waveforms])
-        max_len = max(w.shape[-1] for w in waveforms)
-        padded = torch.zeros(len(waveforms), 1, max_len)
-        for i, w in enumerate(waveforms):
-            padded[i, :, : w.shape[-1]] = w
-
-        return dict(
-            paths=paths,
-            durations=durations,
-            sampling_rates=sample_rates,
-            lengths=lengths,
-            waveforms=padded, # [B, 1, T]
-        )
-
-
-class OWWFeature:
-    def __init__(
-        self,
-        dataset: AudioDataset,
         feature_path: str,
+        *,
+        dataset: AudioDataset,
         window_sec: int,
         batch_size: int,
     ):
-        self.dataset = dataset
         self.feature_path = feature_path
+        self.dataset = dataset
         self.window_sec = window_sec  # the desired window size (in seconds) for the trained openWakeWord model
         self.batch_size = batch_size  # number of files to load, compute features, and write to mmap at a time
+        self.total_N = int(sum(dataset.durations)//window_sec)  # maximum number of rows in mmap file
         self.F = openwakeword.utils.AudioFeatures()
         self.shape = self.F.get_embedding_shape(window_sec)
-        self.total_N = int(sum(self.dataset.durations)//self.window_sec)
         self.embedding_T = self.shape[0]
-        self.embedding_D = self.shape[1]
+        self.embedding_F = self.shape[1]
         self.f_mem = None
-        print(f"{feature_path=} {window_sec=} {total_N=} {embedding_T=} {embedding_D=}")
+        print(f"{feature_path=} {self.total_N=} {window_sec=} {batch_size=} {self.embedding_T=} {self.embedding_F=}")
 
     def __enter__(self):
         # Process files by batch and save to Numpy memory mapped file so that
         # an array larger than the available system memory can be created
+        os.makedirs(os.path.dirname(self.feature_path), exist_ok=True)
         self.f_mem = np.lib.format.open_memmap(
             self.feature_path,
             mode='w+',
             dtype=np.float32,
-            shape=(self.total_N, self.embedding_T, self.embedding_D),
+            shape=(self.total_N, self.embedding_T, self.embedding_F),
         )
         return self
 
@@ -256,13 +66,15 @@ class OWWFeature:
         row_counter = 0
         for i in tqdm(np.arange(0, len(self.dataset), self.batch_size)):
             # Load data in batches and shape into rectangular array
-            wav_data = [(j["array"]*32767).astype(np.int16) for j in self.dataset[i:i+self.batch_size]["audio"]]
-            print(f"file_wav: {len(wav_data)=} {wav_data[0].shape=}")
-            wav_data = openwakeword.data.stack_clips(wav_data, clip_size=16000*clip_size).astype(np.int16)
-            print(f"stack_clips: {len(wav_data)=} {wav_data.shape=}")
-            
+            batch_items = self.dataset.get_batch(start=i, size=self.batch_size)
+            batch_data = [(j["audio"]["array"]*32767).astype(np.int16) for j in batch_items]
+            print(f"batch_data: {len(batch_data)=} {batch_data[0].shape=}")
+            clip_size = self.dataset.sample_rate * self.window_sec
+            clip_data = openwakeword.data.stack_clips(batch_data, clip_size=clip_size).astype(np.int16)
+            print(f"clip_data: {len(clip_data)=} {clip_data.shape=}")
+
             # Compute features (increase ncpu argument for faster processing)
-            features = self.F.embed_clips(x=wav_data, batch_size=1024, ncpu=8)
+            features = self.F.embed_clips(x=clip_data, batch_size=1024, ncpu=8)
             print(f"features: {len(features)=} {features.shape=}")
             
             # Save computed features to mmap array file (stopping once the desired size is reached)
@@ -276,79 +88,217 @@ class OWWFeature:
                 self.f_mem.flush()
 
 
-class OWWDataset:
+class OWWPositiveFeature:
     def __init__(
         self,
-        negative_dirs: List[str],
-        positive_dirs: List[str],
-        negative_feature_path: str,
-        positive_feature_path: str,
-        batch_size: int = 512,
-        sample_rate: int = 16000,
-        enable_mono: bool = True,
+        feature_path: str,
+        *,
+        positive_dataset: AudioDataset,
+        negative_dataset: AudioDataset,
+        window_sec: int,
+        batch_size: int,
     ):
+        self.feature_path = feature_path
+        self.positive_dataset = positive_dataset  # positive example
+        self.negative_dataset = negative_dataset  # negative example
+        self.window_sec = window_sec  # the desired window size (in seconds) for the trained openWakeWord model
+        self.batch_size = batch_size  # number of files to load, compute features, and write to mmap at a time
+        self.total_N = len(positive_dataset)  # maximum number of rows in mmap file
+        self.F = openwakeword.utils.AudioFeatures()
+        self.shape = self.F.get_embedding_shape(window_sec)
+        self.embedding_T = self.shape[0]
+        self.embedding_F = self.shape[1]
+        self.f_mem = None
+        print(f"{feature_path=} {self.total_N=} {window_sec=} {batch_size=} {self.embedding_T=} {self.embedding_F=}")
+
+    def __enter__(self):
+        # Process files by batch and save to Numpy memory mapped file so that
+        # an array larger than the available system memory can be created
+        os.makedirs(os.path.dirname(self.feature_path), exist_ok=True)
+        self.f_mem = np.lib.format.open_memmap(
+            self.feature_path,
+            mode='w+',
+            dtype=np.float32,
+            shape=(self.total_N, self.embedding_T, self.embedding_F),
+        )
+        return self
+
+    def __exit__(self, *args):
+        # Trip empty rows from the mmapped array
+        openwakeword.data.trim_mmap(self.feature_path)
+
+    def write(self):
+        # Define starting point for each positive clip based on its length, so that each one ends 
+        # between 0-200 ms from the end of the total window size chosen for the model.
+        # This results in the model being most confident in the prediction right after the
+        # end of the wakeword in the audio stream, reducing latency in operation.
+
+        # Get start and end positions for the positive audio in the full window
+        sr = self.positive_dataset.sample_rate
+        durations = self.positive_dataset.durations
+        jitters = (np.random.uniform(0, 0.2, self.total_N)*sr).astype(np.int32)
+        window_size = int(sr * self.window_sec)
+        starts = [window_size - (int(np.ceil(i*sr))+j) for i,j in zip(durations, jitters)]
+        ends = [int(i*sr) + j for i, j in zip(durations, starts)]
+
+        # Create generator to mix the positive audio with background audio
+        mixing_generator = openwakeword.data.mix_clips_batch(
+            foreground_clips = self.positive_dataset.file_paths,
+            background_clips = self.negative_dataset.file_paths,
+            combined_size = window_size,
+            batch_size = self.batch_size,
+            snr_low = 5,
+            snr_high = 15,
+            start_index = starts,
+            volume_augmentation=True, # randomly scale the volume of the audio after mixing
+        )
+
+        row_counter = 0
+        for batch in tqdm(mixing_generator, total=self.total_N//self.batch_size):
+            batch, lbls, background = batch[0], batch[1], batch[2]
+            
+            # Compute audio features
+            features = self.F.embed_clips(batch, batch_size=256)
+
+            # Save computed features
+            self.f_mem[row_counter:row_counter+features.shape[0], :, :] = features
+            row_counter += features.shape[0]
+            self.f_mem.flush()
+
+            if row_counter >= self.total_N:
+                break
+
+
+class OWWDataset:
+    def __init__(self, window_sec: int, sample_rate: int = 16000, enable_mono: bool = True):
         self.sample_rate = sample_rate
         self.enable_mono = enable_mono
-        self.negative_feature_path = negative_feature_path
-        self.positive_feature_path = positive_feature_path
+        self.window_sec = window_sec
+        self.positive_features = None
+        self.negative_features = None
+        self.train_batch_size = None
+        self.trainloader = None
 
+    @property
+    def total_N(self) -> int:
+        if self.trainloader is None or self.train_batch_size is None:
+            raise RuntimeError("Invalid dataset")
+        return len(self.trainloader) * self.train_batch_size
 
-        # Load the data prepared in previous steps (it's small enough to load entirely in memory)
-        # negative_features: [N_neg, T, F] = (23, 28, 96) 
-        # positive_features: [N_pos, T, F] = (3203, 28, 96)
-        negative_features = np.load(negative_feat_path)
-        positive_features = np.load(positive_feat_path)
-        print(f"negative_features len={len(negative_features)} shape={negative_features.shape}")
-        print(f"positive_features len={len(positive_features)} shape={positive_features.shape}")
+    @property
+    def embedding_T(self) -> int:
+        if self.trainloader is None:
+            raise RuntimeError("Invalid dataset")
+        return self.positive_features.shape[1]
+    
+    @property
+    def embedding_F(self) -> int:
+        if self.trainloader is None:
+            raise RuntimeError("Invalid dataset")
+        return self.positive_features.shape[2]
 
-        # X_shape: [N_neg + N_pos, T, F] = (3226, 28, 96)
-        # y_shape: [N_neg + N_pos, 1] = (3226, 1)
-        X = np.vstack((negative_features, positive_features))
-        y = np.array(
-            [0]*len(negative_features) +   # negative -> 0
-            [1]*len(positive_features)     # positive -> 1
-        ).astype(np.float32)[..., None]
-        print(f"X len={len(X)} shape={X.shape}")
-        print(f"y len={len(y)} shape={y.shape}")
-
-        # x_batch: [B, T, F] = (512, 28, 96)
-        # y_batch: [B, 1] = (512, 1)
-        self.trainloader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(
-                torch.from_numpy(X.astype(np.float32)),
-                torch.from_numpy(y.astype(np.float32)),
-            ),
-            batch_size=batch_size,
-            shuffle=True,
-        )
-        for x_batch, y_batch in self.trainloader:
-            print(f"x_batch len={len(x_batch)} shape={x_batch.shape}")
-            print(f"y_batch len={len(y_batch)} shape={y_batch.shape}")
-            self.input_timesteps = x_batch.shape[1]
-            self.input_feature = x_batch.shape[2]
-            print(f"y len={len(y)} shape={y.shape} {self.input_timesteps=} {self.input_feature=}")
-            break
-
-    def negative_features(self, target_dirs: List[str], feature_path: str):
+    def save_negative_features(self, feature_path: str, *, negative_dirs: List[str]):
         dataset = AudioDataset(
-            target_dirs=target_dirs,
+            target_dirs=negative_dirs,
             sample_rate=self.sample_rate,
             enable_mono=self.enable_mono,
         )
-        print(f"negative_clips: {len(dataset)=} with ~{sum(dataset.durations)} sec")
-
-        with OWWFeature(dataset, feature_path, window_sec=3, batch_size=64) as oww_feature:
+        print(f"negative_features: {len(dataset)=} with ~{sum(dataset.durations)} sec.")
+        with OWWNegativeFeature(
+            feature_path,
+            dataset=dataset,
+            window_sec=self.window_sec,
+            batch_size=64,
+        ) as oww_feature:
             oww_feature.write()
 
+    def save_positive_features(self, feature_path: str, *, positive_dirs: List[str], negative_dirs: List[str]):
+        positive_dataset = AudioDataset(
+            target_dirs=positive_dirs,
+            sample_rate=self.sample_rate,
+            enable_mono=self.enable_mono,
+        )
+        print(f"positive_features: {len(positive_dataset)=} with ~{sum(positive_dataset.durations)} sec.")
+        negative_dataset = AudioDataset(
+            target_dirs=negative_dirs,
+            sample_rate=self.sample_rate,
+            enable_mono=self.enable_mono,
+        )
+        print(f"positive_features: {len(negative_dataset)=} with ~{sum(negative_dataset.durations)} sec.")
 
+        with OWWPositiveFeature(
+            feature_path,
+            positive_dataset=positive_dataset,
+            negative_dataset=negative_dataset,
+            window_sec=self.window_sec,
+            batch_size=8,
+        ) as oww_feature:
+            oww_feature.write()
 
+    def load_features(
+        self,
+        positive_feature_path: str,
+        negative_feature_path: str,
+        batch_size: int,
+    ):
+        # Load the data prepared in previous steps (it's small enough to load entirely in memory)
+        positive_features = np.load(positive_feature_path) # [N_pos, T, F] = (N, 28, 96)
+        negative_features = np.load(negative_feature_path) # [N_neg, T, F] = (N, 28, 96)
+        if positive_features.shape[1] != negative_features.shape[1]:
+            raise RuntimeError(
+                f"Invalid embedding timestep: "
+                f"positive={positive_features.shape[1]} "
+                f"negative={negative_features.shape[1]}"
+            )
+        if positive_features.shape[2] != negative_features.shape[2]:
+            raise RuntimeError(
+                f"Invalid embedding feature: "
+                f"positive={positive_features.shape[2]} "
+                f"negative={negative_features.shape[2]}"
+            )
+
+        print(f"Load features positive={positive_features.shape} negative={negative_features.shape}")
+        self.positive_features = positive_features
+        self.negative_features = negative_features
+        self.train_batch_size = batch_size
+
+        X = np.vstack((negative_features, positive_features)).astype(np.float32)
+        y = np.concatenate([
+            np.zeros(len(negative_features)), # negative -> 0
+            np.ones(len(positive_features)),  # positive -> 1
+        ]).astype(np.float32)[:, None]
+        self.trainloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(
+                torch.from_numpy(X),
+                torch.from_numpy(y),
+            ),
+            batch_size=batch_size,
+            shuffle=True,
+            drop_last=True,
+        )
+
+    def show(self):
+        if self.trainloader is None:
+            raise RuntimeError("Invalid dataset")
+        print(
+            f"Features Dataset:"
+            f"\n  {len(self.trainloader)=}"
+            f"\n  {self.train_batch_size=}"
+            f"\n  {self.total_N=}"
+            f"\n  {self.embedding_T=}"
+            f"\n  {self.embedding_F=}"
+        )
+        for x_batch, y_batch in self.trainloader:
+            print(f"  {x_batch.shape=}") # [B, T, F] = (512, 28, 96)
+            print(f"  {y_batch.shape=}") # [B, 1] = (512, 1)
+            break
 
 
 class OWWNetwork(torch.nn.Module):
-    def __init__(self, input_timesteps: int, input_feature: int, layer_dim: int = 32):
+    def __init__(self, *, embedding_timestep: int, embedding_feature: int, layer_dim: int):
         super().__init__()
         self.flatten = torch.nn.Flatten() # the input is flattened
-        self.fc1 = torch.nn.Linear(input_timesteps * input_feature, layer_dim)
+        self.fc1 = torch.nn.Linear(embedding_timestep * embedding_feature, layer_dim)
         self.ln1 = torch.nn.LayerNorm(layer_dim)
         self.relu1 = torch.nn.ReLU()
         self.fc2 = torch.nn.Linear(layer_dim, layer_dim)
@@ -372,16 +322,28 @@ class OWWNetwork(torch.nn.Module):
 
 
 class OWWModel:
-    def __init__(self, input_timesteps, input_feature):
-        self.network = OWWNetwork(input_timesteps, input_feature)
+    def __init__(
+        self,
+        dataset: OWWDataset,
+        *,
+        layer_dim: int,
+        learn_rate: float,
+    ):
+        self.dataset = dataset
+        self.network = OWWNetwork(
+            embedding_timestep=dataset.embedding_T,
+            embedding_feature=dataset.embedding_F,
+            layer_dim=layer_dim,
+        )
         self.criterion = torch.nn.CrossEntropyLoss(reduction='none')
-        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=0.001)
+        self.optimizer = torch.optim.Adam(self.network.parameters(), lr=learn_rate)
+        self.metadata = collections.defaultdict(list)
 
-    def train(self, data_loader: torch.utils.data.DataLoader, num_epochs: int = 10):
+    def train(self, num_epochs: int):
         # Define training loop, metrics, and logging
-        history = collections.defaultdict(list)
+        self.metadata.clear()
         for i in tqdm(range(num_epochs), total=num_epochs):
-            for batch in data_loader:
+            for batch in self.dataset.trainloader:
                 # Get data for batch
                 x, y = batch[0], batch[1]
 
@@ -404,31 +366,75 @@ class OWWModel:
                 self.optimizer.step()
 
                 # Log metrics
-                history['loss'].append(float(loss.detach().numpy()))
+                self.metadata['loss'].append(float(loss.detach().numpy()))
                 tp = sum(predictions.flatten()[y.flatten() == 1] >= 0.5)
                 fn = sum(predictions.flatten()[y.flatten() == 1] < 0.5)
-                history['recall'].append(float(tp/(tp+fn).detach().numpy()))
+                self.metadata['recall'].append(float(tp/(tp+fn).detach().numpy()))
 
+    def save_metrics(self, metrics_path: str):
         # Plot training metrics
+        matplotlib.use("Agg")
         plt.figure()
-        plt.plot(history['loss'], label="loss")
-        plt.plot(history['recall'], label="recall")
+        plt.plot(self.metadata['loss'], label="loss")
+        plt.plot(self.metadata['recall'], label="recall")
         plt.legend()
         plt.ylim(0,1)
+        plt.savefig(metrics_path)
+        plt.close()
+
+
+class OWWMain:
+    def __init__(self):
+        self.work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.data_dir = f"{self.work_dir}/data"
+        self.cv17_dir = f"{self.data_dir}/huggingface/common_voice_17"
+        self.feature_dir = f"{self.data_dir}/feature"
+        self.positive_dirs = [
+            f"{self.data_dir}/turn_on_the_office_lights/positive"
+        ]
+        self.negative_dirs = [
+            f"{self.cv17_dir}/en/train",
+            f"{self.cv17_dir}/en/test",
+        ]
+        self.positive_feature_path = f"{self.feature_dir}/positive_features.npy"
+        self.negative_feature_path = f"{self.feature_dir}/negative_features.npy"
+        self.window_sec = 3
+
+    def download_cv17(self):
+        CV17Dataset(root_dir=self.cv17_dir, n_train=300, n_test=20)
+
+    def save_features(self):
+        oww_dataset = OWWDataset(window_sec=self.window_sec)
+        oww_dataset.save_negative_features(
+            self.negative_feature_path,
+            negative_dirs=self.negative_dirs,
+        )
+        oww_dataset.save_positive_features(
+            self.positive_feature_path,
+            positive_dirs=self.positive_dirs,
+            negative_dirs=self.negative_dirs,
+        )
+
+    def train_model(self):
+        oww_dataset = OWWDataset(window_sec=self.window_sec)
+        oww_dataset.load_features(
+            positive_feature_path=self.positive_feature_path,
+            negative_feature_path=self.negative_feature_path,
+            batch_size = 512,
+        )
+        oww_dataset.show()
+
+        oww_model = OWWModel(
+            oww_dataset,
+            layer_dim=32,
+            learn_rate=0.001,
+        )
+        oww_model.train(num_epochs=10)
+        oww_model.save_metrics(f"{self.data_dir}/turn_on_the_office_lights/train_metrics.png")
 
 
 if __name__ == "__main__":
-    work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    hf_dir = f"{work_dir}/data/huggingface"
-    cv17 = CV17Dataset(hf_path=hf_dir, n_train=5, n_test=2)
-
-    oww_dataset = OWWDataset(
-        negative_feat_path="data/huggingface/common_voice_17/en/train_features.npy",
-        positive_feat_path="data/turn_on_the_office_lights/positive_features.npy",
-        batch_size=512,
-    )
-
-    oww_model = OWWModel(
-        oww_dataset.input_timesteps, oww_dataset.input_feature
-    )
-    oww_model.train(oww_dataset.trainloader, num_epochs=10)
+    oww = OWWMain()
+    oww.download_cv17()
+    #oww.save_features()
+    oww.train_model()
