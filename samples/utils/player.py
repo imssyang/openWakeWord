@@ -1,3 +1,4 @@
+import librosa
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -62,6 +63,41 @@ class AudioPlayer:
         data, samplerate = cls.gen_sine_wave()
         cls.play_data(data, samplerate)
         print("Sine Over")
+
+    @classmethod
+    def mix_music(
+        cls,
+        input_path: str,
+        music_path: str,
+        output_path: str,
+        sample_rate: int,
+        enable_mono: bool,
+        mix_sec: int,
+        music_gain: float = 0.7,
+        dtype: str = 'float32',
+    ):
+        dat, sr = sf.read(input_path, dtype=dtype)
+        dat_music, sr_music = sf.read(music_path, dtype=dtype)
+        tdat = cls.transform(dat, sr, self.sample_rate, self.enable_mono)
+        tdat_music = cls.transform(dat_music, sr_music, self.sample_rate, self.enable_mono)
+        mix_len = mix_sec * self.sample_rate
+        speech_tail = dat[-mix_len:]     # Take tail voice
+        music_head = dat_music[:mix_len] # Take head music
+        mixed_tail = (speech_tail + music_gain * music_head) * 0.5  # Mix (music attenuation 0.7, then averaged)
+        tdat[-mix_len:] = mixed_tail     # Write back to the original audio
+        sf.write(output_path, tdat, self.sample_rate)
+
+    @staticmethod
+    def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:
+        if enable_mono:
+            audio_data = librosa.to_mono(audio_data)
+        if orig_sr != target_sr:
+            audio_data = librosa.resample(
+                audio_data,
+                orig_sr=orig_sr,
+                target_sr=target_sr,
+            )
+        return audio_data
 
 
 class FilePlayer(AudioPlayer):

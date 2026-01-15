@@ -49,7 +49,7 @@ class WakeWordModel:
         *,
         inference_framework: str,
         enable_noise_suppression: bool = False,
-        vad_threshold: float = 0,
+        vad_threshold: float = 0.5,
         pred_threshold: float = 0,
         enable_debug: bool = False
     ):
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     alexa_file = f"{data_dir}/alexa/alexa_test.wav"
     hey_jane_file = f"{data_dir}/hey_jane/hey_jane_test.wav"
     hey_mycroft_file = f"{data_dir}/hey_mycroft/hey_mycroft_test.wav"
-    model_framework = "tflite" # tflite,onnx
+    model_framework = "onnx" # tflite,onnx
 
     wwm = WakeWordModel([
         f"{model_dir}/alexa_v0.1.{model_framework}",

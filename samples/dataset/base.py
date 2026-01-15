@@ -1,9 +1,8 @@
-import librosa
-import numpy as np
 import openwakeword.data
 import torch
 import torchaudio
 from typing import List
+from ..utils import AudioPlayer
 
 
 class AudioDataset(torch.utils.data.Dataset):
@@ -31,7 +30,7 @@ class AudioDataset(torch.utils.data.Dataset):
             raise TypeError("Dataset does not support slicing")
         file_path = self.file_paths[idx]
         tensor_data, sr = torchaudio.load(file_path)  # [channels, samples]
-        np_data = self.transform(tensor_data.numpy(), sr, self.sample_rate, self.enable_mono)
+        np_data = AudioPlayer.transform(tensor_data.numpy(), sr, self.sample_rate, self.enable_mono)
         return dict(
             audio=dict(
                 path=file_path,
@@ -53,16 +52,3 @@ class AudioDataset(torch.utils.data.Dataset):
             duration_method="header",
             glob_filter=f"*.{ext_name}",
         )
-
-    @staticmethod
-    def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:
-        if enable_mono:
-            audio_data = librosa.to_mono(audio_data)
-        if orig_sr != target_sr:
-            audio_data = librosa.resample(
-                audio_data,
-                orig_sr=orig_sr,
-                target_sr=target_sr,
-            )
-        return audio_data
-

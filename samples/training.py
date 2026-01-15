@@ -341,6 +341,7 @@ class OWWModel:
 
     def train(self, num_epochs: int):
         # Define training loop, metrics, and logging
+        print(f"Train {num_epochs=}")
         self.metadata.clear()
         for i in tqdm(range(num_epochs), total=num_epochs):
             for batch in self.dataset.trainloader:
@@ -366,20 +367,57 @@ class OWWModel:
                 self.optimizer.step()
 
                 # Log metrics
-                self.metadata['loss'].append(float(loss.detach().numpy()))
-                tp = sum(predictions.flatten()[y.flatten() == 1] >= 0.5)
-                fn = sum(predictions.flatten()[y.flatten() == 1] < 0.5)
-                self.metadata['recall'].append(float(tp/(tp+fn).detach().numpy()))
+                with torch.no_grad():
+                    probs = predictions.flatten()
+                    labels = y.flatten()
+                    pos_mask = labels == 1
+                    if pos_mask.any():
+                        tp = (probs[pos_mask] >= 0.5).sum() # True Positive
+                        fn = (probs[pos_mask] < 0.5).sum()  # False Negative
+                        recall = (tp / (tp + fn)).item()
+                    else:
+                        recall = 0.0
+                self.metadata['loss'].append(loss.item())
+                self.metadata['recall'].append(recall)
 
-    def save_metrics(self, metrics_path: str):
-        # Plot training metrics
+    def predict(self, audio_path: str, ):
+        audio_data, sr = sf.read(audio_path, dtype='int16')
+        
+        # Pre-compute audio features using helper function        
+        F = openwakeword.utils.AudioFeatures()
+        features = F._get_embeddings(audio_data)
+
+        # Get predictions for each window
+        scores = []
+        for i in tqdm(range(0, features.shape[0]-self.dataset.embedding_T)):
+            window = features[i:i+self.dataset.embedding_T][None,]
+            with torch.no_grad():
+                scores.append(float(self.network(torch.from_numpy(window)).detach().numpy()))
+        return scores
+
+    def save_onnx(self, output_path: str):
+        # the 'args' is the shape of a single example
+        torch.onnx.export(self.network,
+            args=torch.zeros((1, self.dataset.embedding_T, self.dataset.embedding_F)),
+            f=output_path,
+        )
+
+    def plot_metrics(self, save_path: str):
         matplotlib.use("Agg")
         plt.figure()
         plt.plot(self.metadata['loss'], label="loss")
         plt.plot(self.metadata['recall'], label="recall")
         plt.legend()
         plt.ylim(0,1)
-        plt.savefig(metrics_path)
+        plt.savefig(save_path)
+        plt.close()
+
+    def plot_scores(self, save_path: str, scores: list[float]):
+        matplotlib.use("Agg")
+        plt.figure()
+        plt.plot(scores)
+        plt.ylim(0,1)
+        plt.savefig(save_path)
         plt.close()
 
 
@@ -424,13 +462,25 @@ class OWWMain:
         )
         oww_dataset.show()
 
+        wake_word = "turn_on_the_office_lights"
+        num_epochs = 100
         oww_model = OWWModel(
             oww_dataset,
             layer_dim=32,
             learn_rate=0.001,
         )
-        oww_model.train(num_epochs=10)
-        oww_model.save_metrics(f"{self.data_dir}/turn_on_the_office_lights/train_metrics.png")
+        oww_model.train(num_epochs=num_epochs)
+        oww_model.save_onnx(f"{self.data_dir}/{wake_word}/{wake_word}.onnx")
+        oww_model.plot_metrics(
+            f"{self.data_dir}/{wake_word}/train_epoch{num_epochs}.png"
+        )
+        scores = oww_model.predict(
+            f"{self.data_dir}/{wake_word}/{wake_word}.wav"
+        )
+        oww_model.plot_scores(
+            f"{self.data_dir}/{wake_word}/score_graph.png",
+            scores,
+        )
 
 
 if __name__ == "__main__":
