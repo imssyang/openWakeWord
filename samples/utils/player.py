@@ -87,6 +87,11 @@ class AudioPlayer:
         tdat[-mix_len:] = mixed_tail     # Write back to the original audio
         sf.write(output_path, tdat, self.sample_rate)
 
+    @classmethod
+    def load_file(cls, audio_path: str, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):
+        audio_data, sr = sf.read(audio_path)
+        return cls.transform(audio_data, sr, sample_rate, enable_mono).astype(dtype)
+
     @staticmethod
     def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:
         if enable_mono:

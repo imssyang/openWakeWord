@@ -6,19 +6,20 @@ import soundfile as sf
 import torch
 from typing import Optional
 from .base import AudioDataset
+from ..utils import AudioPlayer
 
 
 class CV17Dataset:
     def __init__(
         self,
         root_dir: str,
+        language: str,
         n_train: int,
         n_test: int,
+        sample_rate: int,
+        enable_mono: bool,
         batch_size: int = 1,
         num_workers: int = 0,
-        language: str = "en",
-        sample_rate: int = 16000,
-        enable_mono: bool = True,
         cache_dir: Optional[str] = None,
     ):
         self.cache_dir = cache_dir
@@ -98,7 +99,7 @@ class CV17Dataset:
             save_name = f"{os.path.splitext(audio_path)[0]}.wav"
             save_path = f"{output_dir}/{save_name}"
             if not os.path.exists(save_path):
-                audio_target = AudioDataset.transform(
+                audio_target = AudioPlayer.transform(
                     audio_data, audio_sr, self.sample_rate, self.enable_mono)
                 sf.write(save_path, audio_target, self.sample_rate)
                 self.append_csv(csv_path, i, save_name, sentence)
