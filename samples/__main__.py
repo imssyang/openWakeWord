@@ -1,14 +1,14 @@
 import os
 import warnings
-from .dataset import CV17Dataset
-from .training import OWWDataset, OWWModel
-
 
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     message="pkg_resources is deprecated as an API.*"
 )
+
+from .dataset import CV17Dataset
+from .training import OWWDataset, OWWModel
 
 
 class OWWMain:

@@ -324,6 +324,7 @@ class OWWModel:
         *,
         layer_dim: int,
         learn_rate: float,
+        positive_weight: float = 0.1,
     ):
         self.dataset = dataset
         self.network = OWWNetwork(
@@ -331,7 +332,10 @@ class OWWModel:
             embedding_feature=dataset.embedding_F,
             layer_dim=layer_dim,
         ).to(self.device)
-        self.criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([0.1], device=self.device))
+        self.positive_weight = positive_weight
+        self.criterion = torch.nn.BCEWithLogitsLoss(
+            pos_weight=torch.tensor([self.positive_weight], device=self.device),
+        )
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=learn_rate)
         self.metadata = collections.defaultdict(list)
 
@@ -354,7 +358,7 @@ class OWWModel:
                 # Give a higher weight to the negative sample to prevent false positives
                 # As you have more data (both positive and negative), this is less important
                 weights = torch.ones_like(y, device=y.device)
-                weights[y == 1] = 0.1
+                weights[y == 1] = self.positive_weight
 
                 # Zero gradients
                 self.optimizer.zero_grad()
@@ -386,26 +390,31 @@ class OWWModel:
     def predict(self, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        audio_data = AudioPlayer.load_file(
-            audio_path,
-            self.dataset.sample_rate,
-            self.dataset.enable_mono,
-            dtype='int16',
-        )
+        #audio_data = AudioPlayer.load_file(
+        #    audio_path,
+        #    self.dataset.sample_rate,
+        #    self.dataset.enable_mono,
+        #    dtype='int16',
+        #)
+        audio_data, sr = sf.read(audio_path, dtype='int16')
         features = F._get_embeddings(audio_data) # [N, F]
 
         # Get predictions for each window
         self.network.eval()
         scores = []
-        with torch.no_grad():
-            for i in tqdm(range(0, features.shape[0] - self.dataset.embedding_T)):
-                window = features[i:i + self.dataset.embedding_T]       # [T, F]
-                window = torch.from_numpy(window).float().unsqueeze(0)  # [1, T, F]
-                window = window.to(self.device)
-
-                logits = self.network(window)      # [1, 1]
-                prob = torch.sigmoid(logits)       # Add sigmoid when reasoning
-                scores.append(float(prob.item()))
+        for i in tqdm(range(0, features.shape[0]-self.dataset.embedding_T)):
+            window = features[i:i+self.dataset.embedding_T][None,]
+            with torch.no_grad():
+                scores.append(float(self.network(torch.from_numpy(window)).item()))
+        
+        #with torch.no_grad():
+        #    for i in tqdm(range(0, features.shape[0] - self.dataset.embedding_T)):
+        #        window = features[i:i + self.dataset.embedding_T]       # [T, F]
+        #        window = torch.from_numpy(window).float().unsqueeze(0)  # [1, T, F]
+        #        window = window.to(self.device)
+        #        logits = self.network(window)      # [1, 1]
+        #        prob = torch.sigmoid(logits)       # Add sigmoid when reasoning
+        #        scores.append(float(logits.item()))
         print(f"Predict: {audio_path} {features.shape=} {len(scores)=}")
         return scores
 
