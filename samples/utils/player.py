@@ -90,7 +90,12 @@ class AudioPlayer:
     @classmethod
     def load_file(cls, audio_path: str, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):
         audio_data, sr = sf.read(audio_path)
-        return cls.transform(audio_data, sr, sample_rate, enable_mono).astype(dtype)
+        audio_target = cls.transform(audio_data, sr, sample_rate, enable_mono)
+        if dtype in ["int16"]:
+            audio_target = np.clip(audio_target, -1.0, 1.0)
+            return (audio_target * 32767.0).astype(np.int16)
+        else:
+            return audio_target.astype(dtype)
 
     @staticmethod
     def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:

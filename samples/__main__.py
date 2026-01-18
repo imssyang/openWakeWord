@@ -82,8 +82,8 @@ class OWWMain:
         oww_model.save_onnx(f"{self.wakeword_dir}/{self.wake_word}.onnx")
         oww_model.plot_metrics(f"{self.wakeword_dir}/train_epoch{self.num_epochs}.png")
 
-        scores = oww_model.predict(f"{self.wakeword_dir}/verifier/{self.wake_word}.wav")
-        oww_model.plot_scores(f"{self.wakeword_dir}/verifier/score_graph.png", scores)
+        scores = oww_model.predict(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
+        oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.png", scores)
 
 
 if __name__ == "__main__":

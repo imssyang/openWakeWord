@@ -29,9 +29,9 @@ class OWWNegativeFeature:
         self.batch_size = batch_size  # number of files to load, compute features, and write to mmap at a time
         self.total_N = int(sum(dataset.durations)//window_sec)  # maximum number of rows in mmap file
         self.F = openwakeword.utils.AudioFeatures()
-        self.shape = self.F.get_embedding_shape(window_sec)
-        self.embedding_T = self.shape[0]
-        self.embedding_F = self.shape[1]
+        self.embedding_shape = self.F.get_embedding_shape(window_sec)
+        self.embedding_T = self.embedding_shape[0]
+        self.embedding_F = self.embedding_shape[1]
         self.f_mem = None
         print(f"Negative: {self.total_N=} {window_sec=} {batch_size=} {self.embedding_T=} {self.embedding_F=}")
 
@@ -96,9 +96,9 @@ class OWWPositiveFeature:
         self.batch_size = batch_size  # number of files to load, compute features, and write to mmap at a time
         self.total_N = len(positive_dataset)  # maximum number of rows in mmap file
         self.F = openwakeword.utils.AudioFeatures()
-        self.shape = self.F.get_embedding_shape(window_sec)
-        self.embedding_T = self.shape[0]
-        self.embedding_F = self.shape[1]
+        self.embedding_shape = self.F.get_embedding_shape(window_sec)
+        self.embedding_T = self.embedding_shape[0]
+        self.embedding_F = self.embedding_shape[1]
         self.f_mem = None
         print(f"Positive: {self.total_N=} {window_sec=} {batch_size=} {self.embedding_T=} {self.embedding_F=}")
 
@@ -211,6 +211,7 @@ class OWWDataset:
             oww_feature.write()
 
     def save_positive_features(self, feature_path: str, *, positive_dirs: List[str], negative_dirs: List[str]):
+        print(f"Positive: {positive_dirs=} {negative_dirs=}")
         negative_dataset = AudioDataset(
             target_dirs=negative_dirs,
             sample_rate=self.sample_rate,
@@ -338,6 +339,7 @@ class OWWModel:
         )
         self.optimizer = torch.optim.Adam(self.network.parameters(), lr=learn_rate)
         self.metadata = collections.defaultdict(list)
+        print(f"{self.network=}")
 
     @property
     @lru_cache(maxsize=1)
@@ -390,31 +392,26 @@ class OWWModel:
     def predict(self, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        #audio_data = AudioPlayer.load_file(
-        #    audio_path,
-        #    self.dataset.sample_rate,
-        #    self.dataset.enable_mono,
-        #    dtype='int16',
-        #)
-        audio_data, sr = sf.read(audio_path, dtype='int16')
+        audio_data = AudioPlayer.load_file(
+            audio_path,
+            self.dataset.sample_rate,
+            self.dataset.enable_mono,
+            dtype='int16',
+        )
         features = F._get_embeddings(audio_data) # [N, F]
+        features_N = features.shape[0]
 
         # Get predictions for each window
         self.network.eval()
         scores = []
-        for i in tqdm(range(0, features.shape[0]-self.dataset.embedding_T)):
-            window = features[i:i+self.dataset.embedding_T][None,]
-            with torch.no_grad():
-                scores.append(float(self.network(torch.from_numpy(window)).item()))
-        
-        #with torch.no_grad():
-        #    for i in tqdm(range(0, features.shape[0] - self.dataset.embedding_T)):
-        #        window = features[i:i + self.dataset.embedding_T]       # [T, F]
-        #        window = torch.from_numpy(window).float().unsqueeze(0)  # [1, T, F]
-        #        window = window.to(self.device)
-        #        logits = self.network(window)      # [1, 1]
-        #        prob = torch.sigmoid(logits)       # Add sigmoid when reasoning
-        #        scores.append(float(logits.item()))
+        with torch.no_grad():
+            for i in tqdm(range(0, features_N - self.dataset.embedding_T)):
+                window = features[i:i + self.dataset.embedding_T]       # [T, F]
+                window = torch.from_numpy(window).float().unsqueeze(0)  # [1, T, F]
+                logits = self.network(window.to(self.device))           # [1, 1]
+                prob = torch.sigmoid(logits)       # Add sigmoid when reasoning
+                scores.append(float(prob.item()))
+                print(f"Predict[{i}]: {prob=} {logits=} {window.shape=}")
         print(f"Predict: {audio_path} {features.shape=} {len(scores)=}")
         return scores
 
