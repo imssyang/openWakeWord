@@ -17,7 +17,8 @@ class OWWMain:
         self.work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_dir = f"{self.work_dir}/data"
         self.cv17_dir = f"{self.data_dir}/huggingface/common_voice_17"
-        self.wakeword_dir = f"{self.data_dir}/{self.wake_word}"
+        self.music_dir = f"{self.data_dir}/music/fma_sample"
+        self.wakeword_dir = f"{self.data_dir}/wakeword/{self.wake_word}"
         self.feature_dir = f"{self.wakeword_dir}/feature"
         self.positive_dirs = [
             f"{self.wakeword_dir}/positive"
@@ -84,6 +85,12 @@ class OWWMain:
 
         scores = oww_model.predict(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
         oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.png", scores)
+
+        scores_music = oww_model.predict_with_mixmusic(
+            f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav",
+            f"{self.music_dir}/000182.wav",
+        )
+        oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test_music.png", scores_music)
 
 
 if __name__ == "__main__":

@@ -78,14 +78,14 @@ class AudioPlayer:
     ):
         dat, sr = sf.read(input_path, dtype=dtype)
         dat_music, sr_music = sf.read(music_path, dtype=dtype)
-        tdat = cls.transform(dat, sr, self.sample_rate, self.enable_mono)
-        tdat_music = cls.transform(dat_music, sr_music, self.sample_rate, self.enable_mono)
-        mix_len = mix_sec * self.sample_rate
+        tdat = cls.transform(dat, sr, sample_rate, enable_mono)
+        tdat_music = cls.transform(dat_music, sr_music, sample_rate, enable_mono)
+        mix_len = mix_sec * sample_rate
         speech_tail = dat[-mix_len:]     # Take tail voice
         music_head = dat_music[:mix_len] # Take head music
         mixed_tail = (speech_tail + music_gain * music_head) * 0.5  # Mix (music attenuation 0.7, then averaged)
         tdat[-mix_len:] = mixed_tail     # Write back to the original audio
-        sf.write(output_path, tdat, self.sample_rate)
+        sf.write(output_path, tdat, sample_rate)
 
     @classmethod
     def load_file(cls, audio_path: str, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):

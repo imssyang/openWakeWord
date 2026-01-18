@@ -415,6 +415,19 @@ class OWWModel:
         print(f"Predict: {audio_path} {features.shape=} {len(scores)=}")
         return scores
 
+    @torch.no_grad()
+    def predict_with_mixmusic(self, audio_path: str, music_path: str):
+        output_path = f"{os.path.splitext(audio_path)[0]}_music.wav"
+        AudioPlayer.mix_music(
+            audio_path,
+            music_path,
+            output_path,
+            self.dataset.sample_rate,
+            self.dataset.enable_mono,
+            mix_sec=20,
+        )
+        return self.predict(output_path)
+
     def save_onnx(self, output_path: str):
         # the 'args' is the shape of a single example
         dummy_input = torch.zeros(

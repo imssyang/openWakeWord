@@ -129,11 +129,15 @@ dmypy.json
 .pyre/
 
 # Others
-data/huggingface/_cache/
-data/huggingface/common_voice_17/
-data/turn_on_the_office_lights/*
-!data/turn_on_the_office_lights/*.onnx
-!data/turn_on_the_office_lights/verifier
-data/turn_on_the_office_lights/verifier/*
-!data/turn_on_the_office_lights/verifier/*.wav
+data/huggingface/*
+!data/huggingface/README.md
+data/music/*
+!data/music/README.md
+data/noise/*
+!data/noise/README.md
+data/wakeword/turn_on_the_office_lights/*
+!data/wakeword/turn_on_the_office_lights/*.onnx
+!data/wakeword/turn_on_the_office_lights/verifier
+data/wakeword/turn_on_the_office_lights/verifier/*
+!data/wakeword/turn_on_the_office_lights/verifier/*.wav
 !data/README.md
