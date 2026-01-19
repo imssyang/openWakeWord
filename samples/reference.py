@@ -1,3 +1,5 @@
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as np
 import openwakeword
 import os
@@ -48,18 +50,16 @@ class WakeWordModel:
         model_paths: Tuple[str],
         *,
         inference_framework: str,
-        enable_noise_suppression: bool = False,
         vad_threshold: float = 0.5,
-        pred_threshold: float = 0,
+        enable_noise_suppression: bool = False,
         enable_debug: bool = False
     ):
         self.model_paths = model_paths
-        self.pred_threshold = pred_threshold
         self.enable_debug = enable_debug
         self.model = openwakeword.model.Model(
             wakeword_models=model_paths,
-            enable_speex_noise_suppression=enable_noise_suppression,
             vad_threshold=vad_threshold,
+            enable_speex_noise_suppression=enable_noise_suppression,
             inference_framework=inference_framework,
         )
         print(f"models.keys: {self.model.models.keys()}")
@@ -105,6 +105,7 @@ class WakeWordModel:
         # Get predictions for individual WAV files (16-bit 16khz PCM)
         predictions = self.model.predict_clip(audio_path)
         print(f"predict_clip={format_np_floats(predictions)}")
+        return predictions
 
     def predict_bulk(self, audio_paths: Tuple[str]):
         # Get predictions for a large number of files using multiprocessing
@@ -114,6 +115,14 @@ class WakeWordModel:
             ncpu=2,
         )
         print(f"predict_bulk={format_np_floats(predictions)}")
+
+    def plot_scores(self, save_path: str, scores: list[float]):
+        matplotlib.use("Agg")
+        plt.figure()
+        plt.plot(scores)
+        plt.ylim(0,1)
+        plt.savefig(save_path)
+        plt.close()
 
 
 if __name__ == "__main__":

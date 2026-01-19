@@ -1,4 +1,5 @@
 import os
+import torch
 import warnings
 
 warnings.filterwarnings(
@@ -9,6 +10,7 @@ warnings.filterwarnings(
 
 from .dataset import CV17Dataset
 from .training import OWWDataset, OWWModel
+from .reference import WakeWordModel
 
 
 class OWWMain:
@@ -86,15 +88,33 @@ class OWWMain:
         scores = oww_model.predict(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
         oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.png", scores)
 
-        scores_music = oww_model.predict_with_mixmusic(
-            f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav",
-            f"{self.music_dir}/000182.wav",
+        #scores_music = oww_model.predict_with_mixmusic(
+        #    f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav",
+        #    f"{self.music_dir}/000182.wav",
+        #)
+        #oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test_music.png", scores_music)
+
+    def predict_clip(self):
+        wwm = WakeWordModel(
+            [f"{self.wakeword_dir}/{self.wake_word}.onnx"],
+            inference_framework="onnx",
+            vad_threshold=0.5,
+            enable_noise_suppression=False,
         )
-        oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test_music.png", scores_music)
+        clips = wwm.predict_clip(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
+        predicts = [p["turn_on_the_office_lights"] for p in clips]
+        scores = []
+        for p in predicts:
+            logits = torch.Tensor([[p]])
+            prob = torch.sigmoid(logits)
+            print(f"{prob=} {logits=}")
+            scores.append(float(prob.item()))
+        wwm.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test2.png", scores)
 
 
 if __name__ == "__main__":
     oww = OWWMain()
     #oww.download_cv17()
     #oww.save_features()
-    oww.train_model()
+    #oww.train_model()
+    oww.predict_clip()
