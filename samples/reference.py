@@ -93,13 +93,16 @@ class WakeWordModel:
         if last is not None:
             frames.append(last)
 
+        predictions = []
         for i, frame in enumerate(frames):
             prediction = self.model.predict(frame)
             print(f"predict[{i}:{80*i}ms]={format_np_floats(prediction)}")
+            predictions.append(prediction)
             if self.enable_debug:
                 for mdl in self.model.prediction_buffer.keys():
                     scores = list(self.model.prediction_buffer[mdl])
                     print(f"prediction_buffer[{i}:{80*i}ms]: {mdl}={format_np_floats(scores)}")
+        return predictions
 
     def predict_clip(self, audio_path: str):
         # Get predictions for individual WAV files (16-bit 16khz PCM)
@@ -120,7 +123,7 @@ class WakeWordModel:
         matplotlib.use("Agg")
         plt.figure()
         plt.plot(scores)
-        plt.ylim(0,1)
+        #plt.ylim(0,1)
         plt.savefig(save_path)
         plt.close()
 

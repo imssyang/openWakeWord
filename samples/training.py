@@ -429,6 +429,9 @@ class OWWModel:
         return self.predict(output_path)
 
     def save_onnx(self, output_path: str):
+        self.network.eval()
+        torch.set_grad_enabled(False)
+
         # the 'args' is the shape of a single example
         dummy_input = torch.zeros(
             (1, self.dataset.embedding_T, self.dataset.embedding_F),
@@ -438,10 +441,40 @@ class OWWModel:
             self.network,
             args=dummy_input,
             f=output_path,
+            export_params=True,
+            opset_version=13,
+            do_constant_folding=True,
             input_names=['input'],
             output_names=['logits'],
             dynamic_axes={'input': {0: 'batch_size'}, 'logits': {0: 'batch_size'}},
         )
+
+    def onnx_predict(self, onnx_path: str, audio_path: str):
+        # Pre-compute audio features using helper function
+        F = openwakeword.utils.AudioFeatures()
+        audio_data = AudioPlayer.load_file(
+            audio_path,
+            self.dataset.sample_rate,
+            self.dataset.enable_mono,
+            dtype='int16',
+        )
+        features = F._get_embeddings(audio_data) # [N, F]
+        features_N = features.shape[0]
+
+        import onnxruntime as ort
+        session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
+        input_name = session.get_inputs()[0].name
+
+        scores = []
+        for i in tqdm(range(0, features_N - self.dataset.embedding_T)):
+            window = features[i:i + self.dataset.embedding_T]       # [T, F]
+            window_np = (window.astype(np.float32)[None, :, :])     # [1, T, F]
+            logits = session.run(None, {input_name: window_np})[0]  # [1, 1]
+            prob = 1 / (1 + np.exp(-logits))                        # Add sigmoid when reasoning
+            scores.append(float(prob.item()))
+            print(f"ONNXPredict[{i}]: {prob=} {logits=} {window.shape=} {window_np.shape=}")
+        print(f"ONNXPredict: {audio_path} {features.shape=} {len(scores)=}")
+        return scores
 
     def plot_metrics(self, save_path: str):
         matplotlib.use("Agg")

@@ -137,7 +137,9 @@ data/noise/*
 !data/noise/README.md
 data/wakeword/turn_on_the_office_lights/*
 !data/wakeword/turn_on_the_office_lights/*.onnx
+data/wakeword/turn_on_the_office_lights/turn_on_the_office_lights.onnx
 !data/wakeword/turn_on_the_office_lights/verifier
 data/wakeword/turn_on_the_office_lights/verifier/*
 !data/wakeword/turn_on_the_office_lights/verifier/*.wav
+data/wakeword/turn_on_the_office_lights/verifier/santa_barbara_corpus_test.wav
 !data/README.md

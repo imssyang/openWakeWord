@@ -88,6 +88,12 @@ class OWWMain:
         scores = oww_model.predict(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
         oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.png", scores)
 
+        scores_onnx = oww_model.onnx_predict(
+            f"{self.wakeword_dir}/{self.wake_word}.onnx",
+            f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav",
+        )
+        oww_model.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test_onnx.png", scores_onnx)
+
         #scores_music = oww_model.predict_with_mixmusic(
         #    f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav",
         #    f"{self.music_dir}/000182.wav",
@@ -99,17 +105,33 @@ class OWWMain:
             [f"{self.wakeword_dir}/{self.wake_word}.onnx"],
             inference_framework="onnx",
             vad_threshold=0.5,
-            enable_noise_suppression=False,
+            enable_noise_suppression=True,
         )
-        clips = wwm.predict_clip(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
+        clips = wwm.predict_file(f"{self.wakeword_dir}/verifier/{self.wake_word}_test.wav")
         predicts = [p["turn_on_the_office_lights"] for p in clips]
         scores = []
         for p in predicts:
             logits = torch.Tensor([[p]])
             prob = torch.sigmoid(logits)
-            print(f"{prob=} {logits=}")
             scores.append(float(prob.item()))
         wwm.plot_scores(f"{self.wakeword_dir}/verifier/{self.wake_word}_test2.png", scores)
+
+    def predict_clip2(self):
+        audio_file = "santa_barbara_corpus_test.wav"
+        wwm = WakeWordModel(
+            [f"{self.wakeword_dir}/{self.wake_word}.onnx"],
+            inference_framework="onnx",
+            vad_threshold=0.5,
+            enable_noise_suppression=True,
+        )
+        clips = wwm.predict_file(f"{self.wakeword_dir}/verifier/{audio_file}")
+        predicts = [p["turn_on_the_office_lights"] for p in clips]
+        scores = []
+        for p in predicts:
+            logits = torch.Tensor([[p]])
+            prob = torch.sigmoid(logits)
+            scores.append(float(prob.item()))
+        wwm.plot_scores(f"{self.wakeword_dir}/verifier/{audio_file}.png", scores)
 
 
 if __name__ == "__main__":
@@ -117,4 +139,5 @@ if __name__ == "__main__":
     #oww.download_cv17()
     #oww.save_features()
     #oww.train_model()
-    oww.predict_clip()
+    #oww.predict_clip()
+    oww.predict_clip2()
