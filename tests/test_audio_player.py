@@ -1,13 +1,13 @@
-from samples.utils import (
-    AudioPlayer,
+from source.utils import (
+    AudioSound,
     FilePlayer,
     RealPlayer,
 )
 
 
 def test_sine():
-    AudioPlayer.list_devices()
-    AudioPlayer.play_sine()
+    AudioSound.list_devices()
+    AudioSound.play_sine()
 
 
 def test_file():

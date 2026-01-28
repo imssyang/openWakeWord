@@ -6,7 +6,7 @@ import soundfile as sf
 import torch
 from typing import Optional
 from .base import AudioDataset
-from ..utils import AudioPlayer
+from ..utils import AudioConvert
 
 
 class CV17Dataset:
@@ -99,8 +99,11 @@ class CV17Dataset:
             save_name = f"{os.path.splitext(audio_path)[0]}.wav"
             save_path = f"{output_dir}/{save_name}"
             if not os.path.exists(save_path):
-                audio_target = AudioPlayer.transform(
-                    audio_data, audio_sr, self.sample_rate, self.enable_mono)
+                audio_target = AudioConvert.transform(
+                    audio_data,
+                    orig_sr=audio_sr,
+                    target_sr=self.sample_rate,
+                    enable_mono=self.enable_mono)
                 sf.write(save_path, audio_target, self.sample_rate)
                 self.append_csv(csv_path, i, save_name, sentence)
         print(f"Download audio files: {n_element} for {split_name}")

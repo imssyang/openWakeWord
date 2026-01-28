@@ -3,9 +3,10 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 import threading
+from .convert import AudioConvert
 
 
-class AudioPlayer:
+class AudioSound(AudioConvert):
     @classmethod
     def list_devices(cls):
         devices = sd.query_devices()
@@ -78,8 +79,8 @@ class AudioPlayer:
     ):
         dat, sr = sf.read(input_path, dtype=dtype)
         dat_music, sr_music = sf.read(music_path, dtype=dtype)
-        tdat = cls.transform(dat, sr, sample_rate, enable_mono)
-        tdat_music = cls.transform(dat_music, sr_music, sample_rate, enable_mono)
+        tdat = cls.transform(dat, orig_sr=sr, target_sr=sample_rate, enable_mono=enable_mono)
+        tdat_music = cls.transform(dat_music, orig_sr=sr_music, target_sr=sample_rate, enable_mono=enable_mono)
         mix_len = mix_sec * sample_rate
         speech_tail = dat[-mix_len:]     # Take tail voice
         music_head = dat_music[:mix_len] # Take head music
@@ -90,27 +91,15 @@ class AudioPlayer:
     @classmethod
     def load_file(cls, audio_path: str, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):
         audio_data, sr = sf.read(audio_path)
-        audio_target = cls.transform(audio_data, sr, sample_rate, enable_mono)
+        audio_target = cls.transform(audio_data, orig_sr=sr, target_sr=sample_rate, enable_mono=enable_mono)
         if dtype in ["int16"]:
             audio_target = np.clip(audio_target, -1.0, 1.0)
             return (audio_target * 32767.0).astype(np.int16)
         else:
             return audio_target.astype(dtype)
 
-    @staticmethod
-    def transform(audio_data: np.ndarray, orig_sr: int, target_sr: int, enable_mono: bool) -> np.ndarray:
-        if enable_mono:
-            audio_data = librosa.to_mono(audio_data)
-        if orig_sr != target_sr:
-            audio_data = librosa.resample(
-                audio_data,
-                orig_sr=orig_sr,
-                target_sr=target_sr,
-            )
-        return audio_data
 
-
-class FilePlayer(AudioPlayer):
+class FilePlayer(AudioSound):
     def __init__(self, path: str, dtype: str = 'float32'):
         self.data, self.samplerate = sf.read(path, dtype=dtype)
         print(f"File {path}: {self.samplerate}Hz with {type(self.data)}/{self.data.shape}")
@@ -118,6 +107,14 @@ class FilePlayer(AudioPlayer):
     def play(self):
         self.play_data2(self.data, self.samplerate)
 
+    def get_chunks(self, chunk_size: int, dtype: np.dtype):
+        chunks = []
+        num_frames = len(self.data) // chunk_size
+        for i in range(num_frames):
+            chunk = audio[i*chunk_size : (i+1)*chunk_size]
+            chunks.append(AudioConvert.convert(chunk, dtype))
+        return chunks
+    
 
 class RealPlayer:
     def __init__(self, samplerate=16000, chunksize=512, channels=1, dtype='float32'):

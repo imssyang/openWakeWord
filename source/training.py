@@ -11,7 +11,7 @@ from tqdm import tqdm
 from typing import List
 from functools import lru_cache
 from .dataset import AudioDataset
-from .utils import AudioPlayer
+from .utils import AudioSound
 
 
 class OWWNegativeFeature:
@@ -392,7 +392,7 @@ class OWWModel:
     def predict(self, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        audio_data = AudioPlayer.load_file(
+        audio_data = AudioSound.load_file(
             audio_path,
             self.dataset.sample_rate,
             self.dataset.enable_mono,
@@ -418,7 +418,7 @@ class OWWModel:
     @torch.no_grad()
     def predict_with_mixmusic(self, audio_path: str, music_path: str):
         output_path = f"{os.path.splitext(audio_path)[0]}_music.wav"
-        AudioPlayer.mix_music(
+        AudioSound.mix_music(
             audio_path,
             music_path,
             output_path,
@@ -452,7 +452,7 @@ class OWWModel:
     def onnx_predict(self, onnx_path: str, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        audio_data = AudioPlayer.load_file(
+        audio_data = AudioSound.load_file(
             audio_path,
             self.dataset.sample_rate,
             self.dataset.enable_mono,

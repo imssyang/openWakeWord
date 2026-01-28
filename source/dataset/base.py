@@ -2,7 +2,7 @@ import openwakeword.data
 import torch
 import torchaudio
 from typing import List
-from ..utils import AudioPlayer
+from ..utils import AudioConvert
 
 
 class AudioDataset(torch.utils.data.Dataset):
@@ -30,7 +30,11 @@ class AudioDataset(torch.utils.data.Dataset):
             raise TypeError("Dataset does not support slicing")
         file_path = self.file_paths[idx]
         tensor_data, sr = torchaudio.load(file_path)  # [channels, samples]
-        np_data = AudioPlayer.transform(tensor_data.numpy(), sr, self.sample_rate, self.enable_mono)
+        np_data = AudioConvert.transform(
+            tensor_data.numpy(),
+            orig_sr=sr,
+            target_sr=self.sample_rate,
+            enable_mono=self.enable_mono)
         return dict(
             audio=dict(
                 path=file_path,
