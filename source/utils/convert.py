@@ -107,12 +107,12 @@ class AudioConvert:
         *,
         secondary: np.ndarray,
         secondary_sr: int,
+        secondary_gain: float,
         output_sr: int,
-        start_sec: float = 0.0,
+        start_sec: float,
         duration_sec: float | None = None,
-        secondary_gain: float = 0.7,
         loop_secondary: bool = False,
-        enable_mono: bool = True,
+        enable_mono: bool = False,
         **kwargs
     ) -> np.ndarray:
         """
@@ -123,10 +123,10 @@ class AudioConvert:
             primary_sr: sample rate of primary audio
             secondary: audio to mix
             secondary_sr: sample rate of secondary audio
+            secondary_gain: gain for secondary
             output_sr: output sample rate
             start_sec: start time in primary to mix in seconds
             duration_sec: max mixing duration (None -> till secondary length)
-            secondary_gain: gain for secondary
             loop_secondary: if True, secondary will loop to fill duration
             enable_mono: convert both audios to mono
 

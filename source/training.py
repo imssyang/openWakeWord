@@ -12,6 +12,7 @@ from typing import List
 from functools import lru_cache
 from .dataset import AudioDataset
 from .utils import AudioSound
+from .utils import AudioConvert
 
 
 class OWWNegativeFeature:
@@ -418,14 +419,20 @@ class OWWModel:
     @torch.no_grad()
     def predict_with_mixmusic(self, audio_path: str, music_path: str):
         output_path = f"{os.path.splitext(audio_path)[0]}_music.wav"
-        AudioSound.mix_music(
-            audio_path,
-            music_path,
-            output_path,
-            self.dataset.sample_rate,
-            self.dataset.enable_mono,
-            mix_sec=20,
+        audio_data, audio_sr = sf.read(audio_path)
+        music_data, music_sr = sf.read(music_path)
+        mixing_data = AudioConvert.mixing(
+            audio_data,
+            audio_sr,
+            secondary=music_data,
+            secondary_sr=music_sr,
+            secondary_gain=0.7,
+            output_sr=self.dataset.sample_rate,
+            start_sec=0.0,
+            duration_sec=20,
+            enable_mono=self.dataset.enable_mono,
         )
+        sf.write(output_path, mixing_data, self.dataset.sample_rate)
         return self.predict(output_path)
 
     def save_onnx(self, output_path: str):
