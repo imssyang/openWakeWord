@@ -11,7 +11,7 @@ from tqdm import tqdm
 from typing import List
 from functools import lru_cache
 from .dataset import AudioDataset
-from .utils import FilePlayer
+from .utils import AudioFile
 from .utils import AudioConvert
 
 
@@ -393,10 +393,9 @@ class OWWModel:
     def predict(self, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        audio_data = AudioSound.load_file(
-            audio_path,
-            self.dataset.sample_rate,
-            self.dataset.enable_mono,
+        audio_data = AudioFile(audio_path).transform(
+            sample_rate=self.dataset.sample_rate,
+            enable_mono=self.dataset.enable_mono,
             dtype='int16',
         )
         features = F._get_embeddings(audio_data) # [N, F]
@@ -459,10 +458,9 @@ class OWWModel:
     def onnx_predict(self, onnx_path: str, audio_path: str):
         # Pre-compute audio features using helper function
         F = openwakeword.utils.AudioFeatures()
-        audio_data = AudioSound.load_file(
-            audio_path,
-            self.dataset.sample_rate,
-            self.dataset.enable_mono,
+        audio_data = AudioFile(audio_path).transform(
+            sample_rate=self.dataset.sample_rate,
+            enable_mono=self.dataset.enable_mono,
             dtype='int16',
         )
         features = F._get_embeddings(audio_data) # [N, F]

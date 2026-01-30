@@ -39,7 +39,7 @@ class AudioBuffer(AudioAttribute):
         self.lock = threading.Lock()
 
         # Statistics
-        self.size = 0  # The number of valid frames in the current buffer
+        self.available_frame = 0  # The number of valid frames in the current buffer
         self.total_written = 0   # Total write frames
         self.total_read = 0      # Total playback frames
         self.underrun_count = 0  # The number of playback stutters
@@ -50,7 +50,7 @@ class AudioBuffer(AudioAttribute):
         with self.lock:
             self.read_pos = 0
             self.write_pos = 0
-            self.size = 0
+            self.available_frames = 0
             self.total_written = 0
             self.total_read = 0
             self.underrun_count = 0
@@ -72,10 +72,10 @@ class AudioBuffer(AudioAttribute):
 
         with self.lock:
             frames = data.shape[0]
-            if frames > self.capacity - self.size:
+            if frames > self.capacity - self.available_frame:
                 # Insufficient buffer zone, discard excess (real-time system must make trade-offs)）
                 self.overflow_count += 1
-                frames = self.capacity - self.size
+                frames = self.capacity - self.available_frame
                 data = data[:frames]
                 logging.warning(f"Audio data overflow count {self.overflow_count}")
 
@@ -87,7 +87,7 @@ class AudioBuffer(AudioAttribute):
                 self.buffer[0:second] = data[first:first + second]
 
             self.write_pos = (self.write_pos + frames) % self.capacity
-            self.size += frames
+            self.available_frame += frames
             self.total_written += frames
 
     def read(self, frames: int) -> np.ndarray:
@@ -98,10 +98,10 @@ class AudioBuffer(AudioAttribute):
         out = np.zeros((frames, self.channels), dtype=self.dtype)
 
         with self.lock:
-            if self.size < frames:
+            if self.available_frame < frames:
                 self.underrun_count += 1
 
-            read_frames = min(frames, self.size)
+            read_frames = min(frames, self.available_frame)
             first = min(read_frames, self.capacity - self.read_pos)
             second = read_frames - first
 
@@ -110,22 +110,39 @@ class AudioBuffer(AudioAttribute):
                 out[first:first + second] = self.buffer[0:second]
 
             self.read_pos = (self.read_pos + read_frames) % self.capacity
-            self.size -= read_frames
+            self.available_frame -= read_frames
             self.total_read += read_frames
 
         return out
+
+    def drop_oldest(self, frames: int):
+        """
+        Drop the oldest frames from the buffer.
+        Used for low-latency real-time audio (e.g. mic monitoring).
+
+        Args:
+            frames: number of frames to drop
+        """
+        if frames <= 0 or self.available_frame == 0:
+            return
+
+        drop = min(frames, self.available_frame)
+
+        # move read pointer forward
+        self.read_pos = (self.read_pos + drop) % self.capacity
+        self.available_frame -= drop
 
     @property
     def available_size(self) -> float:
         """Current buffered audio size (latency)."""
         with self.lock:
-            return self.size
+            return self.available_frame
 
     @property
     def available_second(self) -> float:
         """Current buffered audio duration (latency)."""
         with self.lock:
-            return self.size / self.samplerate
+            return self.available_frame / self.samplerate
 
     @property
     def written_second(self) -> float:
@@ -146,6 +163,7 @@ class AudioPlayer(AudioAttribute):
         *,
         latency_sec: float = 0.1,
         capacity_sec: float = 3,
+        odevice: int | None = None,
          **kwargs,
     ):
         super().__init__(**kwargs)
@@ -161,6 +179,7 @@ class AudioPlayer(AudioAttribute):
             samplerate=self.samplerate,
             channels=self.channels,
             dtype=str(self.dtype),
+            device=odevice,
             blocksize=int(latency_sec * self.samplerate),
             callback=self._callback,
         )
@@ -217,19 +236,19 @@ class AudioFile(AudioAttribute):
         self.path = audio_path
         self.data = data
 
-    def transform(self, *, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):
+    def transform(self, *, samplerate: int, enable_mono: bool, dtype: str = 'float32'):
         data = AudioConvert.transform(
             self.data,
             orig_sr=self.samplerate,
-            target_sr=sample_rate,
+            target_sr=samplerate,
             enable_mono=enable_mono,
         )
         return AudioConvert.convert(data, np.dtype(dtype))
 
-    def get_chunks(self, *, chunk_size: int, dtype: str = 'float32') -> List[np.ndarray]:
+    def get_chunks(self, *, chunksize: int, dtype: str = 'float32') -> List[np.ndarray]:
         chunks = []
-        for i in range(0, len(self.data), chunk_size):
-            chunk = self.data[i:i+chunk_size]
+        for i in range(0, len(self.data), chunksize):
+            chunk = self.data[i:i+chunksize]
             chunk = AudioConvert.convert(chunk, np.dtype(dtype))
             chunks.append(chunk)
         return chunks
@@ -273,3 +292,87 @@ class FilePlayer(AudioFile, AudioPlayer):
             time.sleep(0.01)
 
         self.stop()
+
+
+class AudioMic(AudioAttribute):
+    def __init__(
+        self,
+        *,
+        latency_sec: float = 0.1,
+        capacity_sec: float = 3,
+        idevice: int | None = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.latency_sec = latency_sec
+        self.capacity_sec = capacity_sec
+        self.buffer = AudioBuffer(
+            capacity=int(capacity_sec * self.samplerate),
+            samplerate=self.samplerate,
+            channels=self.channels,
+            dtype=str(self.dtype),
+        )
+        self.stream = sd.InputStream(
+            samplerate=self.samplerate,
+            channels=self.channels,
+            dtype=str(self.dtype),
+            device=idevice,
+            blocksize=int(latency_sec * self.samplerate),
+            callback=self._callback,
+        )
+
+    def _callback(self, indata, frames, time, status):
+        if status:
+            logging.warning("Input status: %s", status)
+
+        # Guaranteed shape: [frames, channels]
+        data = indata.copy()
+
+        # Lose the oldest data when the buffer is full (low-latency monitoring is preferred)
+        if self.buffer.available_size + frames > self.buffer.capacity:
+            drop = self.buffer.available_size + frames - self.buffer.capacity
+            self.buffer.drop_oldest(drop)
+
+        self.buffer.write(data)
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop()
+
+    def read(self, frames: int):
+        if self.stream is None or not self.stream.active:
+            raise RuntimeError("Audio stream not started")
+        return self.buffer.read(frames)
+
+    def start(self):
+        if not self.stream.active:
+            self.stream.start()
+
+    def stop(self):
+        if self.stream.active:
+            self.stream.stop()
+
+    def close(self):
+        self.stop()
+        self.stream.close()
+
+
+
+class MicPlayer(AudioPlayer):
+    def __init__(
+        self,
+        idevice: int | None = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+
+    def start(self):
+        AudioPlayer._start_stream(self)
+        MicSource.start(self)
+
+    def stop(self):
+        MicSource.stop(self)
+        AudioPlayer.stop(self)
