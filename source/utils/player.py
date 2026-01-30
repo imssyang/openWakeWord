@@ -11,31 +11,53 @@ import soundfile as sf
 from .convert import AudioConvert
 
 
-class AudioBuffer:
+class AudioAttribute:
+    """The parent class of public audio attributes, and the subclass can be directly inherited"""
+
+    def __init__(self, *, samplerate: int, channels: int, dtype: str = 'float32'):
+        self.samplerate = samplerate
+        self.channels = channels
+        self.dtype = np.dtype(dtype)
+
+
+class AudioBuffer(AudioAttribute):
     """
     Lock-protected ring buffer for real-time audio.
 
     Data layout:
-        buffer shape = (capacity_frames, channels)
+        buffer shape = (capacity, channels)
     """
 
-    def __init__(self, capacity_frames: int, channels: int, dtype: np.dtype):
-        self.capacity = capacity_frames
-        self.channels = channels
-        self.dtype = dtype
+    def __init__(self, capacity: int, **kwargs):
+        super().__init__(**kwargs)
+        self.capacity = capacity
 
         # One-time allocation, no memory is allocated during the callback
-        self.buffer = np.zeros((capacity_frames, channels), dtype=dtype)
+        self.buffer = np.zeros((capacity, self.channels), dtype=self.dtype)
         self.write_pos = 0
         self.read_pos = 0
         self.lock = threading.Lock()
 
         # Statistics
         self.size = 0  # The number of valid frames in the current buffer
-        self.total_written = 0   # Write frames
-        self.total_read = 0      # Playback frames
+        self.total_written = 0   # Total write frames
+        self.total_read = 0      # Total playback frames
         self.underrun_count = 0  # The number of playback stutters
         self.overflow_count = 0  # The number of written too fast
+
+    def reset(self):
+        """Reset ring buffer state and clear all data."""
+        with self.lock:
+            self.read_pos = 0
+            self.write_pos = 0
+            self.size = 0
+            self.total_written = 0
+            self.total_read = 0
+            self.underrun_count = 0
+            self.overflow_count = 0
+
+            # clear audio data to avoid stale playback
+            self.buffer.fill(0)
 
     def write(self, data: np.ndarray):
         """
@@ -94,43 +116,52 @@ class AudioBuffer:
         return out
 
     @property
-    def available_frames(self) -> int:
-        """Frames currently buffered (delay)"""
+    def available_size(self) -> float:
+        """Current buffered audio size (latency)."""
         with self.lock:
             return self.size
 
     @property
-    def written_frames(self) -> int:
+    def available_second(self) -> float:
+        """Current buffered audio duration (latency)."""
         with self.lock:
-            return self.total_written
+            return self.size / self.samplerate
 
     @property
-    def read_frames(self) -> int:
+    def written_second(self) -> float:
+        """Total audio duration written to the player since start."""
         with self.lock:
-            return self.total_read
+            return self.total_written / self.samplerate
+
+    @property
+    def played_second(self) -> float:
+        """Total audio duration actually played."""
+        with self.lock:
+            return self.total_read / self.samplerate
 
 
-class AudioPlayer:
+class AudioPlayer(AudioAttribute):
     def __init__(
         self,
-        samplerate: int,
-        channels: int,
-        capacity: int = 0,
+        *,
         latency_sec: float = 0.1,
-        dtype: str = 'float32',
+        capacity_sec: float = 3,
+         **kwargs,
     ):
-        self.samplerate = samplerate
-        self.channels = channels
+        super().__init__(**kwargs)
         self.latency_sec = latency_sec
-        self.dtype = np.dtype(dtype)
-        self.blocksize = int(latency_sec * samplerate)
-        self.capacity = capacity if capacity else self.blocksize * 30  # experience points
-        self.buffer = AudioBuffer(self.capacity, channels, self.dtype)
+        self.capacity_sec = capacity_sec
+        self.buffer = AudioBuffer(
+            capacity=int(capacity_sec * self.samplerate),
+            samplerate=self.samplerate,
+            channels=self.channels,
+            dtype=str(self.dtype),
+        )
         self.stream = sd.OutputStream(
-            samplerate=samplerate,
-            channels=channels,
-            dtype=dtype,
-            blocksize=self.blocksize,
+            samplerate=self.samplerate,
+            channels=self.channels,
+            dtype=str(self.dtype),
+            blocksize=int(latency_sec * self.samplerate),
             callback=self._callback,
         )
 
@@ -154,10 +185,11 @@ class AudioPlayer:
         self.buffer.write(data.astype(self.dtype, copy=False))
 
     def raw_play(self, data: np.ndarray, *, speed: float = 1.0):
-        if speed != 1.0:
-            data_stretch = librosa.effects.time_stretch(data.T, rate=speed).T
-        else:
+        if speed == 1.0:
             data_stretch = data
+        else:
+            data_stretch = librosa.effects.time_stretch(data.T, rate=speed).T
+
         self._add_data(data_stretch)
 
         if not self.stream.active:
@@ -171,32 +203,44 @@ class AudioPlayer:
         self.stop()
         self.stream.close()
 
-    @property
-    def written_seconds(self) -> float:
-        """Total audio duration written to the player since start."""
-        return self.buffer.written_frames / self.samplerate
 
-    @property
-    def played_second(self) -> float:
-        """Total audio duration actually played."""
-        return self.buffer.read_frames / self.samplerate
-
-    @property
-    def buffered_seconds(self) -> float:
-        """Current buffered audio duration (latency)."""
-        return self.buffer.available_frames / self.samplerate
-
-
-class FilePlayer(AudioPlayer):
+class AudioFile(AudioAttribute):
     def __init__(self, audio_path: str, **kwargs):
-        dtype = kwargs.get('dtype', 'float32')
-        self.data, sr = sf.read(audio_path, dtype=dtype)
+        dtype = kwargs.get("dtype", "float32")
+        data, sr = sf.read(audio_path, dtype=dtype)
         super().__init__(
             samplerate=sr,
-            channels=self.data.shape[1] if self.data.ndim == 2 else 1,
-            capacity=sr*3,
-            latency_sec=0.1,
+            channels=data.shape[1] if data.ndim == 2 else 1,
             dtype=dtype,
+            **kwargs,
+        )
+        self.path = audio_path
+        self.data = data
+
+    def transform(self, *, sample_rate: int, enable_mono: bool, dtype: str = 'float32'):
+        data = AudioConvert.transform(
+            self.data,
+            orig_sr=self.samplerate,
+            target_sr=sample_rate,
+            enable_mono=enable_mono,
+        )
+        return AudioConvert.convert(data, np.dtype(dtype))
+
+    def get_chunks(self, *, chunk_size: int, dtype: str = 'float32') -> List[np.ndarray]:
+        chunks = []
+        for i in range(0, len(self.data), chunk_size):
+            chunk = self.data[i:i+chunk_size]
+            chunk = AudioConvert.convert(chunk, np.dtype(dtype))
+            chunks.append(chunk)
+        return chunks
+
+
+class FilePlayer(AudioFile, AudioPlayer):
+    def __init__(self, audio_path: str, **kwargs):
+        super().__init__(
+            audio_path=audio_path,
+            latency_sec=0.05,
+            capacity_sec=3,            
             **kwargs,
         )
 
@@ -207,7 +251,10 @@ class FilePlayer(AudioPlayer):
         Args:
             speed: playback speed (>1.0 faster, <1.0 slower)
         """
-        chunk_size = int(self.latency_sec * self.samplerate)
+        self.buffer.reset()
+
+        chunk_sec = 0.05 if speed == 1 else 0.6
+        chunk_size = int(chunk_sec * self.samplerate)
         idx = 0
         total_frames = len(self.data)
 
@@ -215,22 +262,14 @@ class FilePlayer(AudioPlayer):
             chunk = self.data[idx:idx+chunk_size]
 
             # wait if buffer is too full
-            while self.buffer.available_frames > self.buffer.capacity // 2:
-                time.sleep(0.005)
+            while self.buffer.available_size > self.buffer.capacity // 2:
+                time.sleep(0.01)
 
             self.raw_play(chunk, speed=speed)
             idx += chunk_size
 
         # wait until buffer is consumed
-        while self.buffer.available_frames > 0:
+        while self.buffer.available_size > 0:
             time.sleep(0.01)
 
         self.stop()
-
-    def get_chunks(self, *, chunk_size: int, dtype: str = 'float32') -> List[np.ndarray]:
-        chunks = []
-        for i in range(0, len(self.data), chunk_size):
-            chunk = self.data[i:i+chunk_size]
-            chunk = AudioConvert.convert(chunk, np.dtype(dtype))
-            chunks.append(chunk)
-        return chunks

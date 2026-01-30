@@ -11,7 +11,7 @@ from tqdm import tqdm
 from typing import List
 from functools import lru_cache
 from .dataset import AudioDataset
-from .utils import AudioSound
+from .utils import FilePlayer
 from .utils import AudioConvert
 
 
