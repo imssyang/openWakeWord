@@ -184,6 +184,13 @@ class AudioPlayer(AudioAttribute):
             callback=self._callback,
         )
 
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop()
+
     def _callback(self, outdata, frames, time, status):
         if status:
             logging.warning("Stream status:", status)
@@ -210,7 +217,9 @@ class AudioPlayer(AudioAttribute):
             data_stretch = librosa.effects.time_stretch(data.T, rate=speed).T
 
         self._add_data(data_stretch)
+        self.start()
 
+    def start(self):
         if not self.stream.active:
             self.stream.start()
 
@@ -298,20 +307,16 @@ class AudioMic(AudioAttribute):
     def __init__(
         self,
         *,
+        on_audio: Callable[[np.ndarray], None],
         latency_sec: float = 0.1,
         capacity_sec: float = 3,
         idevice: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.on_audio = on_audio
         self.latency_sec = latency_sec
         self.capacity_sec = capacity_sec
-        self.buffer = AudioBuffer(
-            capacity=int(capacity_sec * self.samplerate),
-            samplerate=self.samplerate,
-            channels=self.channels,
-            dtype=str(self.dtype),
-        )
         self.stream = sd.InputStream(
             samplerate=self.samplerate,
             channels=self.channels,
@@ -328,12 +333,25 @@ class AudioMic(AudioAttribute):
         # Guaranteed shape: [frames, channels]
         data = indata.copy()
 
-        # Lose the oldest data when the buffer is full (low-latency monitoring is preferred)
-        if self.buffer.available_size + frames > self.buffer.capacity:
-            drop = self.buffer.available_size + frames - self.buffer.capacity
-            self.buffer.drop_oldest(drop)
+        if self.on_audio:
+            try:
+                self.on_audio(data)
+            except Exception:
+                logging.exception("mic on_audio callback error")
+        else:
+            if self.buffer is None:
+                self.buffer = AudioBuffer(
+                    capacity=int(self.capacity_sec * self.samplerate),
+                    samplerate=self.samplerate,
+                    channels=self.channels,
+                    dtype=str(self.dtype),
+                )
 
-        self.buffer.write(data)
+            # Lose the oldest data when the buffer is full (low-latency monitoring is preferred)
+            if self.buffer.available_size + frames > self.buffer.capacity:
+                drop = self.buffer.available_size + frames - self.buffer.capacity
+                self.buffer.drop_oldest(drop)
+            self.buffer.write(data)
 
     def __enter__(self):
         self.start()
@@ -341,11 +359,6 @@ class AudioMic(AudioAttribute):
 
     def __exit__(self, *args):
         self.stop()
-
-    def read(self, frames: int):
-        if self.stream is None or not self.stream.active:
-            raise RuntimeError("Audio stream not started")
-        return self.buffer.read(frames)
 
     def start(self):
         if not self.stream.active:
@@ -360,19 +373,52 @@ class AudioMic(AudioAttribute):
         self.stream.close()
 
 
-
 class MicPlayer(AudioPlayer):
     def __init__(
         self,
+        *,
         idevice: int | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.mic = AudioMic(
+            samplerate=self.samplerate,
+            channels=self.channels,
+            dtype=str(self.dtype),
+            latency_sec=self.latency_sec,
+            capacity_sec=self.capacity_sec,
+            idevice=idevice,
+            on_audio=self._on_audio,
+        )
+
+    def _on_audio(self, data: np.ndarray):
+        frames = len(data)
+
+        # Lose the oldest data when the buffer is full (low-latency monitoring is preferred)
+        if self.buffer.available_size + frames > self.buffer.capacity:
+            drop = self.buffer.available_size + frames - self.buffer.capacity
+            self.buffer.drop_oldest(drop)
+
+        self.raw_play(data)
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        self.stop()
 
     def start(self):
-        AudioPlayer._start_stream(self)
-        MicSource.start(self)
+        """Start mic monitoring."""
+        super().start()
+        self.mic.start()
 
     def stop(self):
-        MicSource.stop(self)
-        AudioPlayer.stop(self)
+        """Stop mic monitoring."""
+        self.mic.stop()
+        super().stop()
+
+    def close(self):
+        """Close mic and player."""
+        self.mic.close()
+        super().close()

@@ -4,7 +4,7 @@ import sounddevice as sd
 import soundfile as sf
 import tempfile
 import time
-from source.utils import AudioPlayer, FilePlayer
+from source.utils import AudioPlayer, FilePlayer, MicPlayer
 
 
 def sine_wave(sample_rate: int, channels: int, duration_sec: float, frequency: float):
@@ -16,7 +16,7 @@ def sine_wave(sample_rate: int, channels: int, duration_sec: float, frequency: f
     return x
 
 
-def test_list_device():
+def test_devices():
     devices = sd.query_devices()
     for idx, device in enumerate(devices):
         print(
@@ -28,34 +28,30 @@ def test_list_device():
 def test_audio_basic():
     samplerate = 16000
     channels = 2
-    player = AudioPlayer(samplerate=samplerate, channels=channels)
-
-    # Generate 0.5 second test audio (sine wave)
-    test_data = sine_wave(samplerate, channels, 0.5, 440)
-    player.raw_play(test_data)
-    time.sleep(0.2)  # waiting for the callback will read the ring buffer
+    with AudioPlayer(samplerate=samplerate, channels=channels) as player:
+        # Generate 0.5 second test audio (sine wave)
+        test_data = sine_wave(samplerate, channels, 0.5, 440)
+        player.raw_play(test_data)
+        time.sleep(0.2)  # waiting for the callback will read the ring buffer
 
     assert player.buffer.written_second >= 0
     assert player.buffer.played_second >= 0
     assert player.buffer.available_second >= 0
     assert player.buffer.underrun_count >= 0
     assert player.buffer.overflow_count >= 0
-
     player.close()
 
 
 def test_audio_mono():
     samplerate = 8000
     channels = 1
-    player = AudioPlayer(samplerate=samplerate, channels=channels)
-
-    # Mono audio
-    test_data = sine_wave(samplerate, channels, 0.2, 300)
-    player.raw_play(test_data)
-    time.sleep(0.1)
+    with AudioPlayer(samplerate=samplerate, channels=channels) as player:
+        # Mono audio
+        test_data = sine_wave(samplerate, channels, 0.2, 300)
+        player.raw_play(test_data)
+        time.sleep(0.1)
 
     assert player.buffer.played_second > 0
-    player.stop()
     player.close()
 
 
@@ -85,3 +81,18 @@ def test_audio_file():
         assert player.buffer.written_second == pytest.approx(duration_sec/speed, rel=0.01)
         assert player.buffer.available_second == pytest.approx(0, rel=0.00001)
 
+        player.close()
+
+
+@pytest.mark.integration
+def test_audio_mic():
+    with MicPlayer(
+        samplerate=16000,
+        channels=1,
+        latency_sec=0.05,
+    ) as player:
+        time.sleep(3.0)
+
+    # At least some data should go into the buffer
+    assert player.buffer.available_size > 0
+    player.close()
