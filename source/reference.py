@@ -4,8 +4,8 @@ import numpy as np
 import openwakeword
 import os
 from typing import Tuple
-from samples.utils import format_np_floats
-from samples.utils import FilePlayer, RealPlayer
+from source.utils import format_np_floats
+from source.utils import FilePlayer, RealPlayer
 
 
 class FrameAccumulator:

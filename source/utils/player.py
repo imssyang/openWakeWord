@@ -231,6 +231,13 @@ class AudioPlayer(AudioAttribute):
         self.stop()
         self.stream.close()
 
+    @staticmethod
+    def raw_play_once(data: np.ndarray, samplerate: int, dtype: str = 'float32'):
+        data = AudioConvert.convert(data, np.dtype(dtype))
+        channels = data.shape[1] if data.ndim > 1 else 1
+        with sd.OutputStream(samplerate=samplerate, channels=channels, dtype=dtype) as stream:
+            stream.write(data)
+
 
 class AudioFile(AudioAttribute):
     def __init__(self, audio_path: str, **kwargs):

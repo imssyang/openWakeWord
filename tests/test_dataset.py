@@ -1,12 +1,12 @@
 import datasets
 import numpy as np
 import openwakeword.data
-from samples.utils import AudioSound
-from samples.training import (
+from tqdm import tqdm
+from source.utils import AudioPlayer
+from source.dataset import (
     AudioDataset,
     CV17Dataset,
 )
-from tqdm import tqdm
 
 
 def test_audio_dataset():
@@ -157,7 +157,7 @@ def test_positive_features():
 
     # (Optionally) listen to mixed clips to confirm that the mixing appears correct
     mixed_clips, labels, background_clips = next(mixing_generator)
-    AudioSound.play_data(mixed_clips[0], samplerate=16000, dtype='float32')
+    AudioPlayer.raw_play_once(mixed_clips[0], samplerate=16000, dtype='float32')
 
     # Iterate through the mixing generator, computing audio features for positive examples and saving them
     N_total = len(positive_clips) # maximum number of rows in mmap file

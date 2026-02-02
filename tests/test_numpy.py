@@ -1,5 +1,5 @@
 import numpy as np
-from samples.utils import format_np_floats
+from source.utils import format_np_floats
 
 
 def test_format_np_floats():

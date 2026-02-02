@@ -2,7 +2,7 @@ import sounddevice as sd
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from samples.utils import (
+from source.utils import (
     AudioSound,
     FilePlayer,
     RealPlayer,
