@@ -261,7 +261,14 @@ class AudioFile(AudioAttribute):
         )
         return AudioConvert.convert(data, np.dtype(dtype))
 
-    def get_chunks(self, *, chunksize: int, dtype: str = 'float32') -> List[np.ndarray]:
+    def get_chunks(
+        self,
+        *,
+        chunksize: int,
+        samplerate: int,
+        enable_mono: bool,
+        dtype: str = 'float32',
+    ) -> List[np.ndarray]:
         chunks = []
         for i in range(0, len(self.data), chunksize):
             chunk = self.data[i:i+chunksize]

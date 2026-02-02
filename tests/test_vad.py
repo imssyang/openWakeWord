@@ -1,62 +1,46 @@
-import sounddevice as sd
-import numpy as np
-import torch
+import os
 import matplotlib.pyplot as plt
-from source.utils import (
-    AudioSound,
-    FilePlayer,
-    RealPlayer,
-)
+import numpy as np
+import sounddevice as sd
+import torch
+from source.utils import AudioPlayer, AudioFile, FilePlayer, MicPlayer
 
 
-def test_audio():
-    fp = FilePlayer("data/vad/test.wav", dtype="int16")
-    chunks = fp.get_chunks(chunk_size=512, dtype=np.int16)
-    for i, chunk in enumerate(chunks):
-        pass
+work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SAMPLE_RATE = 16000
-NUM_SAMPLES = 512
-FRAMES_TO_RECORD = 50
 
-data = []
-voiced_confidences = []
-
-print("Started Recording")
-
-for _ in range(FRAMES_TO_RECORD):
-    # 读取一段音频（阻塞）
-    audio_chunk, _ = sd.rec(
-        frames=NUM_SAMPLES,
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype="int16",
-        blocking=True,
+def test_vad_torch():
+    os.environ["TORCH_HOME"] = f"{work_dir}/models/torch"
+    model, utils = torch.hub.load(
+        repo_or_dir='snakers4/silero-vad',
+        model='silero_vad',
+        force_reload=False,
+        trust_repo=True,
     )
+    (get_speech_timestamps, save_audio, read_audio, VADIterator, collect_chunks) = utils
+    print(f"Loaded model: {model}", utils)
+    
+    confidences = []
+    samplerate = 16000
+    chunks = AudioFile(f"{work_dir}/data/vad/test.wav").get_chunks(
+        chunksize=512, samplerate=samplerate, enable_mono=True, dtype='float32')
+    for i, chunk in enumerate(chunks):
+        chunk = chunk.flatten()  # shape: (512,)
 
-    audio_chunk = audio_chunk.flatten()  # shape: (512,)
+        with torch.no_grad():
+            confidence = model(
+                torch.from_numpy(chunk),
+                samplerate,
+            ).item()
 
-    # 保存原始音频
-    data.append(audio_chunk.copy())
+        confidences.append(confidence)
 
-    # int16 -> float32
-    audio_float32 = audio_chunk.astype(np.float32) / 32768.0
+    print("Stopped Recording")
+    plt.figure(figsize=(20, 6))
+    plt.plot(confidences)
+    plt.title("Voiced Confidence")
+    plt.xlabel("Frame")
+    plt.ylabel("Confidence")
+    plt.savefig(f"{work_dir}/tests/test_vad_output.png")
+    plt.close()
 
-    # 推理
-    with torch.no_grad():
-        confidence = model(
-            torch.from_numpy(audio_float32),
-            SAMPLE_RATE
-        ).item()
-
-    voiced_confidences.append(confidence)
-
-print("Stopped Recording")
-
-# plot
-plt.figure(figsize=(20, 6))
-plt.plot(voiced_confidences)
-plt.title("Voiced Confidence")
-plt.xlabel("Frame")
-plt.ylabel("Confidence")
-plt.show()
