@@ -1,1 +1,1 @@
-from .vad import SileroVadModel
+from .vad import SileroVAD

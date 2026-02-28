@@ -4,7 +4,7 @@ import numpy as np
 import sounddevice as sd
 import torch
 from source.utils import AudioPlayer, AudioFile, FilePlayer, MicPlayer
-from source.models import SileroVadModel
+from source.models import SileroVad
 
 
 work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -48,7 +48,7 @@ def test_vad_torch():
 
 def test_onnx():
     path = f"{work_dir}/models/onnx/silero_vad.onnx"
-    model = SileroVadModel(path)
+    model = SileroVad(path)
     print(f"Loaded model: {path} {model}")
 
     confidences = []
@@ -72,7 +72,7 @@ def test_onnx():
     plt.title("Voiced Confidence")
     plt.xlabel("Frame")
     plt.ylabel("Confidence")
-    plt.savefig(f"{work_dir}/tests/test_vad_output.png")
+    plt.savefig(f"{work_dir}/tests/test_vad_output2.png")
     plt.close()
 
 
