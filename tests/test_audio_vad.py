@@ -68,16 +68,16 @@ class VisualVAD:
     
         interval_ms = int((self.framesize / self.samplerate) * 1000)
         self.timer = QtCore.QTimer()
-        self.timer.timeout.connect(self.update)
+        self.timer.timeout.connect(self._update)
         self.timer.start(interval_ms)
 
         pg.exec()
 
-    def update(self):
+    def _update(self):
         if self.current_frame >= self.n_frames:
             self.timer.stop()
             self.player.stop()
-            self.show_full_result()
+            self._save_full_result()
             return
 
         start_idx = self.current_frame * self.framesize
@@ -110,7 +110,7 @@ class VisualVAD:
         print(f"frame[{self.current_frame}] prob={prob:.4f}")
         self.current_frame += 1
 
-    def show_full_result(self):
+    def _save_full_result(self):
         win = pg.GraphicsLayoutWidget(title="Full Result")
         win.resize(1200, 800)
 
