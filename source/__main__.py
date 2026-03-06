@@ -137,7 +137,7 @@ class OWWMain:
 if __name__ == "__main__":
     oww = OWWMain()
     #oww.download_cv17()
-    #oww.save_features()
+    oww.save_features()
     #oww.train_model()
     #oww.predict_clip()
-    oww.predict_clip2()
+    #oww.predict_clip2()

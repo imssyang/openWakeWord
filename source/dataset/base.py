@@ -1,6 +1,8 @@
-import openwakeword.data
+import os
 import torch
 import torchaudio
+from pathlib import Path
+from tqdm import tqdm
 from typing import List
 from ..utils import AudioConvert
 
@@ -49,10 +51,21 @@ class AudioDataset(torch.utils.data.Dataset):
         return [self[i] for i in range(start, end)]
 
     def _filter_paths(self, target_dirs: List[str], ext_name: str):
-        return openwakeword.data.filter_audio_paths(
-            target_dirs,
-            min_length_secs=self.min_length_secs,
-            max_length_secs=self.max_length_secs,
-            duration_method="header",
-            glob_filter=f"*.{ext_name}",
-        )
+        file_paths = []
+        durations = []
+        for target_dir in target_dirs:
+            sizes = []
+            dir_paths = [str(i) for i in Path(target_dir).glob(f"*.{ext_name}")]
+            file_paths.extend(dir_paths)
+            sizes.extend([os.path.getsize(i) for i in dir_paths])
+            durations.extend([self._get_duration(i) for i in tqdm(dir_paths)])
+
+        filtered = [(i, j) for i, j in zip(file_paths, durations) if j >= self.min_length_secs and j <= self.max_length_secs]
+        return [i[0] for i in filtered], [i[1] for i in filtered]
+
+    def _get_duration(self, audio_path):
+        try:
+            metadata = torchaudio.info(audio_path)
+        except RuntimeError:  # skip cases where file metadata can't be read
+            return 0
+        return metadata.num_frames/metadata.sample_rate

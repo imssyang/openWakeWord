@@ -11,7 +11,9 @@ from source.dataset import (
 
 def test_audio_dataset():
     for i, item in enumerate(AudioDataset(
-        ["data/alexa"], 16000, True,
+        ["data/wakeword/alexa", "data/wakeword/hey_mycroft"],
+        sample_rate=16000,
+        enable_mono=True,
     )):
         if i >= 2:
             break

@@ -5,7 +5,7 @@ import openwakeword
 import os
 from typing import Tuple
 from source.utils import format_np_floats
-from source.utils import FilePlayer, RealPlayer
+from source.utils import FilePlayer, MicPlayer
 
 
 class FrameAccumulator:
@@ -69,7 +69,7 @@ class WakeWordModel:
         i = 0
         acc = FrameAccumulator(frame_size=1280)
         # Get audio data containing 16-bit 16khz PCM audio data from microphone.
-        with RealPlayer(samplerate=16000, chunksize=512, channels=1, dtype='int16') as player:
+        with MicPlayer(samplerate=16000, chunksize=512, channels=1, dtype='int16') as player:
             while True:
                 data, overflowed = player.read()
                 audio = np.frombuffer(data, dtype=np.int16)

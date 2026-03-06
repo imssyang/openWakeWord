@@ -5,17 +5,51 @@ import matplotlib.pyplot as plt
 import numpy as np
 import openwakeword
 import openwakeword.data
+import random
 import soundfile as sf
 import torch
 from tqdm import tqdm
-from typing import List
+from typing import List, Tuple
 from functools import lru_cache
 from .dataset import AudioDataset
 from .utils import AudioFile
 from .utils import AudioConvert
 
 
-class OWWNegativeFeature:
+class OWWBaseFeature:
+    @staticmethod
+    def trim_mmap(mmap_path: str):
+        """
+        Trims blank rows from the end of a mmaped numpy array by creates new mmap array without the blank rows.
+        Note that a copy is created and disk usage will briefly double as the function runs.
+        """
+        mmap_file1 = np.load(mmap_path, mmap_mode='r')
+        i = -1
+        while np.all(mmap_file1[i, :, :] == 0):
+            i -= 1
+
+        N_new = mmap_file1.shape[0] + i + 1
+
+        # Create new mmap_file and copy over data in batches
+        output_file2 = mmap_path.strip(".npy") + "2.npy"
+        mmap_file2 = np.lib.format.open_memmap(
+            output_file2, mode='w+', dtype=np.float32,
+            shape=(N_new, mmap_file1.shape[1], mmap_file1.shape[2]),
+        )
+
+        for i in tqdm(range(0, mmap_file1.shape[0], 1024), total=mmap_file1.shape[0]//1024, desc="Trimming empty rows"):
+            if i + 1024 > N_new:
+                mmap_file2[i:N_new] = mmap_file1[i:N_new].copy()
+                mmap_file2.flush()
+            else:
+                mmap_file2[i:i+1024] = mmap_file1[i:i+1024].copy()
+                mmap_file2.flush()
+
+        os.remove(mmap_path)
+        os.rename(output_file2, mmap_path)
+
+
+class OWWNegativeFeature(OWWBaseFeature):
     def __init__(
         self,
         feature_path: str,
@@ -50,7 +84,7 @@ class OWWNegativeFeature:
 
     def __exit__(self, *args):
         # Trip empty rows from the mmapped array
-        openwakeword.data.trim_mmap(self.feature_path)
+        self.trim_mmap(self.feature_path)
 
     def write(self):
         row_counter = 0
@@ -59,7 +93,7 @@ class OWWNegativeFeature:
             batch_items = self.dataset.get_batch(start=i, size=self.batch_size)
             batch_data = [(j["audio"]["array"]*32767).astype(np.int16) for j in batch_items]
             clip_size = self.dataset.sample_rate * self.window_sec
-            clip_data = openwakeword.data.stack_clips(batch_data, clip_size=clip_size).astype(np.int16)
+            clip_data = self._stack_clips(batch_data, clip_size=clip_size).astype(np.int16)
 
             # Compute features (increase ncpu argument for faster processing)
             features = self.F.embed_clips(x=clip_data, batch_size=1024, ncpu=8)
@@ -79,8 +113,22 @@ class OWWNegativeFeature:
                 row_counter += features.shape[0]
                 self.f_mem.flush()
 
+    def _stack_clips(self, audio_data: List[np.ndarray], clip_size: int) -> np.ndarray:
+        """
+        Takes an input list of 1D arrays (of different lengths), concatenates them together,
+        and then extracts clips of a uniform size by dividing the combined array.
+        """
+        result = []
+        combined = np.concatenate(audio_data)
+        for start in range(0, len(combined), clip_size):
+            chunk = combined[start:start+clip_size]
+            if len(chunk) < clip_size:
+                chunk = np.pad(chunk, (0, clip_size - len(chunk)))
+            result.append(chunk)
+        return np.array(result)
 
-class OWWPositiveFeature:
+
+class OWWPositiveFeature(OWWBaseFeature):
     def __init__(
         self,
         feature_path: str,
@@ -117,7 +165,7 @@ class OWWPositiveFeature:
 
     def __exit__(self, *args):
         # Trip empty rows from the mmapped array
-        openwakeword.data.trim_mmap(self.feature_path)
+        self.trim_mmap(self.feature_path)
 
     def write(self):
         # Define starting point for each positive clip based on its length, so that each one ends 
@@ -134,7 +182,7 @@ class OWWPositiveFeature:
         ends = [int(i*sr) + j for i, j in zip(durations, starts)]
 
         # Create generator to mix the positive audio with background audio
-        mixing_generator = openwakeword.data.mix_clips_batch(
+        mixing_generator = self._mix_clips_batch(
             foreground_clips = self.positive_dataset.file_paths,
             background_clips = self.negative_dataset.file_paths,
             combined_size = window_size,
@@ -165,6 +213,149 @@ class OWWPositiveFeature:
 
             if row_counter >= self.total_N:
                 break
+
+    def _mix_clips_batch(
+        self,
+        foreground_clips: List[str],
+        background_clips: List[str],
+        combined_size: int,
+        labels: List[int] = [],
+        batch_size: int = 32,
+        snr_low: float = 0,
+        snr_high: float = 0,
+        start_index: List[int] = [],
+        foreground_durations: List[float] = [],
+        foreground_truncate_strategy: str = "random",
+        rirs: List[str] = [],
+        rir_probability: int = 1,
+        volume_augmentation: bool = True,
+        generated_noise_augmentation: float = 0.0,
+        shuffle: bool = True,
+        return_sequence_labels: bool = False,
+        return_background_clips: bool = False,
+        return_background_clips_delay: Tuple[int, int] = (0, 0),
+        seed: int = 0
+    ):
+        """
+        Mixes foreground and background clips at a random SNR level in batches.
+
+        References: https://pytorch.org/audio/main/tutorials/audio_data_augmentation_tutorial.html and
+        https://speechbrain.readthedocs.io/en/latest/API/speechbrain.processing.speech_augmentation.html#speechbrain.processing.speech_augmentation.AddNoise
+
+        Returns:
+            generator: Returns a generator that yields batches of mixed foreground/background audio, labels, and the
+                    background segments used for each audio clip (or None is the `return_backgroun_clips` argument is False)
+        """
+        # Set random seed, if needed
+        if seed:
+            np.random.seed(seed)
+            random.seed(seed)
+
+        # Check and Set start indices, if needed
+        if not start_index:
+            start_index = [0]*batch_size
+        else:
+            if min(start_index) < 0:
+                raise ValueError("Error! At least one value of the `start_index` argument is <0. Check your inputs.")
+
+        # Make dummy labels
+        if not labels:
+            labels = [0]*len(foreground_clips)
+
+        if shuffle:
+            p = np.random.permutation(len(foreground_clips))
+            foreground_clips = np.array(foreground_clips)[p].tolist()
+            start_index = np.array(start_index)[p].tolist()
+            labels = np.array(labels)[p].tolist()
+            if foreground_durations:
+                foreground_durations = np.array(foreground_durations)[p].tolist()
+
+        for i in range(0, len(foreground_clips), batch_size):
+            # Load foreground clips/start indices and truncate as needed
+            sr = 16000
+            start_index_batch = start_index[i:i+batch_size]
+            foreground_clips_batch = [read_audio(j) for j in foreground_clips[i:i+batch_size]]
+            foreground_clips_batch = [j[0] if len(j.shape) > 1 else j for j in foreground_clips_batch]
+            if foreground_durations:
+                foreground_clips_batch = [truncate_clip(j, int(k*sr), foreground_truncate_strategy)
+                                        for j, k in zip(foreground_clips_batch, foreground_durations[i:i+batch_size])]
+            labels_batch = np.array(labels[i:i+batch_size])
+
+            # Load background clips and pad/truncate as needed
+            background_clips_batch = [read_audio(j) for j in random.sample(background_clips, batch_size)]
+            background_clips_batch = [j[0] if len(j.shape) > 1 else j for j in background_clips_batch]
+            background_clips_batch_delayed = []
+            delay = np.random.randint(return_background_clips_delay[0], return_background_clips_delay[1] + 1)
+            for ndx, background_clip in enumerate(background_clips_batch):
+                if background_clip.shape[0] < (combined_size + delay):
+                    repeated = background_clip.repeat(
+                        np.ceil((combined_size + delay)/background_clip.shape[0]).astype(np.int32)
+                    )
+                    background_clips_batch[ndx] = repeated[0:combined_size]
+                    background_clips_batch_delayed.append(repeated[0+delay:combined_size + delay].clone())
+                elif background_clip.shape[0] > (combined_size + delay):
+                    r = np.random.randint(0, max(1, background_clip.shape[0] - combined_size - delay))
+                    background_clips_batch[ndx] = background_clip[r:r + combined_size]
+                    background_clips_batch_delayed.append(background_clip[r+delay:r + combined_size + delay].clone())
+
+            # Mix clips at snr levels
+            snrs_db = np.random.uniform(snr_low, snr_high, batch_size)
+            mixed_clips = []
+            sequence_labels = []
+            for fg, bg, snr, start in zip(foreground_clips_batch, background_clips_batch,
+                                        snrs_db, start_index_batch):
+                if bg.shape[0] != combined_size:
+                    raise ValueError(bg.shape)
+                mixed_clip = mix_clip(fg, bg, snr, start)
+                sequence_labels.append(get_frame_labels(combined_size, start, start+fg.shape[0]))
+
+                if np.random.random() < generated_noise_augmentation:
+                    noise_color = ["white", "pink", "blue", "brown", "violet"]
+                    noise_clip = acoustics.generator.noise(combined_size, color=np.random.choice(noise_color))
+                    noise_clip = torch.from_numpy(noise_clip/noise_clip.max())
+                    mixed_clip = mix_clip(mixed_clip, noise_clip, np.random.choice(snrs_db), 0)
+
+                mixed_clips.append(mixed_clip)
+
+            mixed_clips_batch = torch.vstack(mixed_clips)
+            sequence_labels_batch = torch.from_numpy(np.vstack(sequence_labels))
+
+            # Apply reverberation to the batch (from a single RIR file)
+            if rirs:
+                if np.random.random() <= rir_probability:
+                    rir_waveform, sr = torchaudio.load(random.choice(rirs))
+                    if rir_waveform.shape[0] > 1:
+                        rir_waveform = rir_waveform[random.randint(0, rir_waveform.shape[0]-1), :]
+                    mixed_clips_batch = reverberate(mixed_clips_batch, rir_waveform, rescale_amp="avg")
+
+            # Apply volume augmentation
+            if volume_augmentation:
+                volume_levels = np.random.uniform(0.02, 1.0, mixed_clips_batch.shape[0])
+                mixed_clips_batch = (volume_levels/mixed_clips_batch.max(dim=1)[0])[..., None]*mixed_clips_batch
+            else:
+                # Normalize clips only if max value is outside of [-1, 1]
+                abs_max, _ = torch.max(
+                    torch.abs(mixed_clips_batch), dim=1, keepdim=True
+                )
+                mixed_clips_batch = mixed_clips_batch / abs_max.clamp(min=1.0)
+
+            # Convert to 16-bit PCM audio
+            mixed_clips_batch = (mixed_clips_batch.numpy()*32767).astype(np.int16)
+
+            # Remove any clips that are silent (happens rarely when mixing/reverberating)
+            error_index = torch.from_numpy(np.where(mixed_clips_batch.max(axis=1) != 0)[0])
+            mixed_clips_batch = mixed_clips_batch[error_index]
+            labels_batch = labels_batch[error_index]
+            sequence_labels_batch = sequence_labels_batch[error_index]
+
+            if not return_background_clips:
+                yield mixed_clips_batch, labels_batch if not return_sequence_labels else sequence_labels_batch, None
+            else:
+                background_clips_batch_delayed = (torch.vstack(background_clips_batch_delayed).numpy()
+                                                * 32767).astype(np.int16)[error_index]
+                yield (mixed_clips_batch,
+                    labels_batch if not return_sequence_labels else sequence_labels_batch,
+                    background_clips_batch_delayed)
 
 
 class OWWDataset:

@@ -1,14 +1,10 @@
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import numpy as np
 import os
-import torch
-import time
 import pyqtgraph as pg
 import pyqtgraph.exporters as exporters
 from pyqtgraph.Qt import QtCore
 from source.models import SileroVAD
-from source.utils import AudioPlayer, AudioFile, FilePlayer, MicPlayer
+from source.utils import AudioPlayer, AudioFile
 
 
 work_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
