@@ -201,6 +201,14 @@ class AudioPlayer(AudioAttribute):
             data = np.broadcast_to(data, (frames, self.stream.channels))
         outdata[:] = data
 
+    def _wait_buffer_available(self):
+        while self.buffer.available_size > self.buffer.capacity // 2:
+            time.sleep(0.01)  # wait if buffer is too full
+
+    def _wait_buffer_empty(self):
+        while self.buffer.available_size > 0:
+            time.sleep(0.01)  # wait until buffer is consumed
+
     def _add_data(self, data: np.ndarray):
         """
         data shape: (N,) or (N, C)
@@ -208,6 +216,7 @@ class AudioPlayer(AudioAttribute):
         if data.ndim == 1:
             data = data[:, None]
 
+        self._wait_buffer_available()
         self.buffer.write(data.astype(self.dtype, copy=False))
 
     def raw_play(self, data: np.ndarray, *, speed: float = 1.0):
@@ -224,6 +233,7 @@ class AudioPlayer(AudioAttribute):
             self.stream.start()
 
     def stop(self):
+        self._wait_buffer_empty()
         if self.stream.active:
             self.stream.stop()
 
@@ -302,17 +312,8 @@ class FilePlayer(AudioFile, AudioPlayer):
 
         while idx < total_frames:
             chunk = self.data[idx:idx+chunk_size]
-
-            # wait if buffer is too full
-            while self.buffer.available_size > self.buffer.capacity // 2:
-                time.sleep(0.01)
-
             self.raw_play(chunk, speed=speed)
             idx += chunk_size
-
-        # wait until buffer is consumed
-        while self.buffer.available_size > 0:
-            time.sleep(0.01)
 
         self.stop()
 

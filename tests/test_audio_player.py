@@ -32,7 +32,6 @@ def test_audio_basic():
         # Generate 0.5 second test audio (sine wave)
         test_data = sine_wave(samplerate, channels, 0.5, 440)
         player.raw_play(test_data)
-        time.sleep(0.2)  # waiting for the callback will read the ring buffer
 
     assert player.buffer.written_second >= 0
     assert player.buffer.played_second >= 0
@@ -49,7 +48,6 @@ def test_audio_mono():
         # Mono audio
         test_data = sine_wave(samplerate, channels, 0.2, 300)
         player.raw_play(test_data)
-        time.sleep(0.1)
 
     assert player.buffer.played_second > 0
     player.close()
